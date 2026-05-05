@@ -42,7 +42,7 @@ G4double G4PrimaryGeneratorAction::SampleGammaEnergy() const {
 
 void G4PrimaryGeneratorAction::GeneratePrimaries(G4Event* event) {
   const G4double r = fSourceRadius * std::sqrt(G4UniformRand());
-  const G4double phi = twopi * G4UniformRand();
+  const G4double phi = 2*3.1415 * G4UniformRand();
   const G4double energy = SampleGammaEnergy();
 
   fGun->SetParticleEnergy(energy);

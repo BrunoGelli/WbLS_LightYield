@@ -41,7 +41,14 @@ std::vector<G4double> ReverseValues(const Array& input) {
 void AddProperty(G4MaterialPropertiesTable* mpt, const char* name,
                  const std::vector<G4double>& energies,
                  const std::vector<G4double>& values) {
-  mpt->AddProperty(name, energies.data(), values.data(), energies.size());
+  // Geant4 10.x declares AddProperty with non-const G4double* arguments even
+  // though it copies the arrays into a G4MaterialPropertyVector. Keep this
+  // helper const-correct for callers, then pass mutable local buffers to remain
+  // compatible with both Geant4 10.x and 11.x.
+  auto mutableEnergies = energies;
+  auto mutableValues = values;
+  mpt->AddProperty(name, mutableEnergies.data(), mutableValues.data(),
+                   static_cast<G4int>(mutableEnergies.size()));
 }
 }
 
