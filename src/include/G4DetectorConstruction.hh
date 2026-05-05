@@ -1,48 +1,31 @@
 #ifndef G4DetectorConstruction_h
 #define G4DetectorConstruction_h 1
 
+#include "DetectorConfig.hh"
 #include "G4VUserDetectorConstruction.hh"
 #include "globals.hh"
-#include "DetectorConfig.hh"
 
+class G4LogicalVolume;
 class G4VPhysicalVolume;
 
+class G4DetectorConstruction : public G4VUserDetectorConstruction {
+public:
+  explicit G4DetectorConstruction(const DetectorConfig& config = DetectorConfig{});
+  ~G4DetectorConstruction() override = default;
 
-  // struct DetectorConfig {
-  // int sizeX, sizeY, sizeZ;
-  // int pixelSizeY, pixelSizeZ;
-  // };
+  G4VPhysicalVolume* Construct() override;
+  void ConstructSDandField() override;
 
-class G4DetectorConstruction : public G4VUserDetectorConstruction
-{
-  public:
-    G4DetectorConstruction(G4double RIndex, DetectorConfig& GeoConf);
-    virtual ~G4DetectorConstruction();
+  const DetectorConfig& GetConfig() const { return fConfig; }
 
-  public:
-    virtual G4VPhysicalVolume* Construct();
+private:
+  void DefineMaterials();
+  G4VPhysicalVolume* DefineVolumes();
+  G4LogicalVolume* MakePhotocathode(const G4String& name, G4double radius, G4int pmtId);
 
-  private:
-    // methods
-    //
-    void DefineMaterials();
-    G4VPhysicalVolume* DefineVolumes();
-
-    DetectorConfig fConfig;
-
-
-    // World
-    G4double world_x, world_y, world_z;
-
-    G4double VLAr_x, VLAr_y, VLAr_z;
-
-    G4double Pixel_x, Pixel_y, Pixel_z;
-
-    G4double clearance;
-
-    G4bool  fCheckOverlaps; // option to activate checking of volumes overlaps
-
-    G4double Refr_Index;
+  DetectorConfig fConfig;
+  G4LogicalVolume* fLargePMTLogical = nullptr;
+  G4LogicalVolume* fSmallPMTLogical = nullptr;
 };
 
-#endif /*G4DetectorConstruction_h*/
+#endif

@@ -3,32 +3,28 @@
 
 #include "G4VUserPrimaryGeneratorAction.hh"
 #include "globals.hh"
+#include "G4SystemOfUnits.hh"
 
-class G4ParticleGun;
 class G4Event;
-class G4PrimaryGeneratorMessenger;
-
-// ============================================================================
+class G4GenericMessenger;
+class G4ParticleGun;
 
 class G4PrimaryGeneratorAction : public G4VUserPrimaryGeneratorAction {
-    
-  public:
-    G4PrimaryGeneratorAction();
-   ~G4PrimaryGeneratorAction();
+public:
+  G4PrimaryGeneratorAction();
+  ~G4PrimaryGeneratorAction() override;
 
-  public:
-    void GeneratePrimaries(G4Event*);
+  void GeneratePrimaries(G4Event*) override;
 
-    void SetOptPhotonPolar();
-    void SetOptPhotonPolar(G4double);
+private:
+  G4double SampleGammaEnergy() const;
+  void DefineCommands();
 
-    bool flag_alpha;
-
-  private:
-    G4ParticleGun* particleGun;
-    
+  G4ParticleGun* fGun = nullptr;
+  G4GenericMessenger* fMessenger = nullptr;
+  G4String fIsotope = "Cs137";
+  G4double fSourceRadius = 0.5 * cm;
+  G4double fSourceZ = 14.0 * cm;
 };
 
-// ============================================================================
-
-#endif /*G4PrimaryGeneratorAction_h*/
+#endif

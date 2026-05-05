@@ -22,3 +22,5 @@ Makefile
 .DS_Store
 *.swp
 *.bak
+# Keep the project build recipe tracked despite the CMake* ignore above
+!CMakeLists.txt
