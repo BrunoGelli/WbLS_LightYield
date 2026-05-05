@@ -1,0 +1,2346 @@
+diff --git a/.gitignore b/.gitignore
+index c22b31289f99e866e30a9b8d795a21eba5e30020..38879cefeff32c77f542b788f1f05ece4bfb0b3f 100644
+--- a/.gitignore
++++ b/.gitignore
+@@ -1,24 +1,28 @@
+ # Build files
+ build/
+ CMakeFiles/
+ CMakeCache.txt
+ cmake_install.cmake
+ Makefile
+ 
+ # Object files and libraries
+ *.o
+ *.so
+ *.pcm
+ *.d
+ 
+ # Output files
+ *.root
+ *.out
+ *.log
+ *.txt
++!CMakeLists.txt
+ *.csv
+ 
+ # IDE/OS files
+ .DS_Store
+ *.swp
+-*.bak
+\ No newline at end of file
++*.bak
++# Python cache
++__pycache__/
++*.py[cod]
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+new file mode 100644
+index 0000000000000000000000000000000000000000..7dfbf26b7d0d85c7b9a2683f4324abd8c92d4a0d
+--- /dev/null
++++ b/CMakeLists.txt
+@@ -0,0 +1,24 @@
++cmake_minimum_required(VERSION 3.16)
++project(WbLSLightYieldToy LANGUAGES CXX)
++
++find_package(Geant4 REQUIRED ui_all vis_all)
++
++file(GLOB sources CONFIGURE_DEPENDS src/src/*.cc src/G4Manager.cc)
++file(GLOB headers CONFIGURE_DEPENDS src/include/*.hh)
++
++add_executable(wblsSim ${sources} ${headers})
++target_include_directories(wblsSim PRIVATE src/include)
++target_link_libraries(wblsSim PRIVATE ${Geant4_LIBRARIES})
++target_compile_features(wblsSim PRIVATE cxx_std_17)
++
++# Copy example macros beside the executable for convenient batch running.
++set(WBLS_MACROS
++  run_Cs137.mac
++  run_Na22.mac
++  run_Co60.mac
++  vis.mac
++)
++foreach(macro ${WBLS_MACROS})
++  configure_file(${CMAKE_CURRENT_SOURCE_DIR}/macros/${macro}
++                 ${CMAKE_CURRENT_BINARY_DIR}/${macro} COPYONLY)
++endforeach()
+diff --git a/README.md b/README.md
+index afdf3503df9344686d1d147857b99520a9f54633..a77f2e41a7d73ed94525b486f22b95b0bcb97e06 100644
+--- a/README.md
++++ b/README.md
+@@ -1,54 +1,157 @@
+-# Toy 2x2 Geant4 Simulation - Pixel focused 
++# WbLS Light-Yield Toy Geant4 Simulation
++
++This repository contains a compact, commented Geant4 optical simulation for a
++water-based liquid scintillator (WbLS) light-yield toy setup: a small cuvette is
++inserted through the top of an integrating sphere, gamma sources illuminate the
++sample, optical photons are transported, and two ideal PMT photocathode disks
++record detected photons with wavelength-dependent QE.
++
++## What is modeled
++
++- **Integrating sphere:** spherical Spectralon-like shell with configurable inner
++  radius, wall thickness, port diameters, and a high-reflectivity Lambertian
++  optical skin.
++- **Sample/cuvette:** quartz-like cylindrical cuvette filled with WbLS.  Radius,
++  height, wall thickness, and insertion depth into the sphere are configurable.
++- **Sources:** simplified isotropic disk gamma source with selectable isotope:
++  `Cs137` (661.7 keV), `Na22` (2 x 511 keV + 1274.5 keV), or `Co60`
++  (1173.2 + 1332.5 keV).
++- **Physics:** `FTFP_BERT` with option-4 electromagnetic physics plus Geant4
++  optical physics, including scintillation, Cherenkov, absorption, Rayleigh, and
++  optical boundary processes.
++- **PMTs:** two flush ideal circular photocathode volumes at +x (`largePMT`) and
++  -x (`smallPMT`). Detection is a Bernoulli trial using each PMT QE curve.
++
++## Key files
++
++| Path | Purpose |
++| --- | --- |
++| `src/include/DetectorConfig.hh` | Central constants for sphere, ports, cuvette, source, WbLS yield, absorption scale, Spectralon reflectivity, and PMT QE scales. |
++| `src/src/G4DetectorConstruction.cc` | Geometry plus optical material property tables. Edit spectra, absorption lengths, reflector curve, and PMT QE arrays here. |
++| `src/src/G4PrimaryGeneratorAction.cc` | Simplified isotope gamma source. |
++| `src/src/G4SteppingAction.cc` | WbLS energy deposition, optical-photon production tagging, QE detection, and photon killing at PMTs. |
++| `src/src/G4RunAction.cc` and `src/src/G4EventAction.cc` | ROOT output TTrees. |
++| `macros/run_Cs137.mac`, `macros/run_Na22.mac`, `macros/run_Co60.mac` | Example batch runs. |
++| `scripts/plot_wbls.py` | Validation plots from the output ROOT file. |
++
++## Build
+ 
+-This repository contains a **Geant4-based simulation** designed to study how the **2x2 detector** (a prototype of the DUNE Near Detector) can be sensitive to **new physics**, including but not limited to **millicharged particles**, **long-lived particles**, and other exotic signatures.
+-
+-The simulation framework is structured to allow future integration of:
+-- **Event generation from [Pythia8](https://pythia.org/)** (currently planned)
+-- **Output to a ROOT TTree** for detailed offline analysis (currently planned)
+-
+----
+-
+-## 🚧 Current Features
+-
+-- Toy detector geometry implementation using `G4PVParameterised` to replicate pixel CRO structure.
+-
+----
+-
+-## 📁 Project Structure
+-
+-The simulation uses a standard Geant4 application layout with the following key components:
+-
+-| Component               | Description |
+-|------------------------|-------------|
+-| `DetectorConstruction` | Defines the 3D geometry and materials of the 2x2 detector. Uses parameterized volumes to fill the active region. |
+-| `PrimaryGeneratorAction` | Will later inject particles generated by Pythia8. Currently serves as a placeholder for basic test beams. |
+-| `SteppingAction`       | Handles step-by-step tracking. Will later be used to extract energy depositions, track hits, and push to output trees. |
+-| `EventAction`          | Manages per-event data collection and (in the future) ROOT tree filling. |
+-| `RunAction`            | Controls logic before and after the simulation run. Useful for initializing analysis structures. |
+-| `ActionInitialization`| Connects the above components to the Geant4 kernel. |
+-
+----
+-
+-## 🔄 Planned Features
+-
+-- [ ] **Pythia8 event feeding** via ROOT interface
+-- [ ] **ROOT output file** with event-level information and energy depositions
+-- [ ] Particle filters and tagging utilities for exotic physics studies
+-
+----
+-
+-## 🛠 Dependencies
+-
+-- [Geant4](https://geant4.web.cern.ch/) (version >= 10.6)
+-- [ROOT](https://root.cern/) (for future output handling)
+-- (Planned) [Pythia8](https://pythia.org/)
++```bash
++mkdir -p build
++cd build
++cmake ..
++cmake --build . -j
++```
+ 
+----
++## Run examples
+ 
+-## 📦 Build Instructions
++```bash
++cd build
++./wblsSim run_Cs137.mac
++./wblsSim run_Na22.mac
++./wblsSim run_Co60.mac
++```
++
++The macros are copied into the build directory by CMake.  Geometry/material UI
++commands must be set before `/run/initialize`.
++
++## ROOT output
++
++The output file name is controlled with:
++
++```text
++/wbls/output/file Cs137_wbls.root
++```
++
++Two TTrees are written:
++
++### `events`
++
++- `eventID`
++- `sourceType`
++- `nPrimaryGammas`
++- `primaryEnergySum_keV`
++- `edepWbLS_keV`
++- `nOpticalProducedWbLS`
++- `nCerenkovProducedWbLS`
++- `nScintProducedWbLS`
++- `nDetectedLargePMT`, `nDetectedSmallPMT`
++- `nDetectedLargePMT_Cerenkov`, `nDetectedSmallPMT_Cerenkov`
++- `nDetectedLargePMT_Scintillation`, `nDetectedSmallPMT_Scintillation`
++
++### `photons`
++
++One row per detected optical photon when `/wbls/output/savePhotonTree true`:
++
++- `eventID`
++- `pmtID` (`0=largePMT`, `1=smallPMT`)
++- `wavelength_nm`
++- `detectionTime_ns`
++- `creationProcess` (`Scintillation`, `Cerenkov`, or `unknown`)
++- `parentTrackID`
++- `creatorProcessName`
++- `originX_mm`, `originY_mm`, `originZ_mm`
++- `hitX_mm`, `hitY_mm`, `hitZ_mm`
++
++## Preserving scintillation vs Cherenkov information
++
++`G4SteppingAction` inspects optical secondaries produced during steps in the
++WbLS logical volume.  Each optical photon receives a small `PhotonTrackInfo`
++object that stores its creator process name, origin position, and parent track
++ID.  When that photon reaches either PMT, the tag is used to increment separate
++Cherenkov and scintillation counters and to fill the per-photon TTree.
++
++## Runtime knobs and edit points
++
++Common macro commands:
++
++```text
++/wbls/sphere/radius 10 cm
++/wbls/ports/sampleDiameter 3 cm
++/wbls/ports/largePMTDiameter 5 cm
++/wbls/ports/smallPMTDiameter 2.5 cm
++/wbls/cuvette/radius 1 cm
++/wbls/cuvette/height 4 cm
++/wbls/cuvette/wall 1 mm
++/wbls/cuvette/insertion 1 cm
++/wbls/source/isotope Cs137
++/wbls/source/radius 4 mm
++/wbls/source/thickness 1 mm
++/wbls/source/distance 2 mm
++/wbls/wbls/lightYield 9000 1/MeV
++/wbls/wbls/absScale 1.0
++/wbls/spectralon/reflectivity 0.98
++/wbls/pmt/largeQEScale 1.0
++/wbls/pmt/smallQEScale 1.0
++```
++
++For wavelength-dependent replacements, edit the clearly marked arrays in
++`G4DetectorConstruction.cc`:
++
++- WbLS refractive index, absorption length, Rayleigh length, scintillation
++  spectrum, yield, decay time, and Birks constant.
++- Quartz refractive index and UV absorption cutoff.
++- Spectralon reflectivity curve.
++- Large/small PMT QE curves.
++
++## Validation plots
++
++After producing a ROOT file:
+ 
+ ```bash
+-mkdir build && cd build
+-cmake ..
+-make
+-./g4Sim
++python3 scripts/plot_wbls.py build/Cs137_wbls.root --outdir plots
++```
++
++The script writes plots for WbLS energy deposition, detected PE distributions,
++largePMT-vs-smallPMT counts, scintillation-vs-Cherenkov detected totals,
++detected-photon wavelength spectra, and detection-time spectra.
++
++## Intentional simplifications
++
++- The sphere ports are represented by the top cuvette opening and by ideal PMT
++  disks placed just inside the spherical wall; no detailed mechanical port cuts
++  or PMT glass bulbs are modeled.
++- The source encapsulation is represented only by an inactive disk placement and
++  an isotropic gamma starting distribution.
++- The WbLS, quartz, Spectralon, and QE curves are plausible placeholders for
++  toy studies, not tuned measurements.
+diff --git a/macros/run_Co60.mac b/macros/run_Co60.mac
+new file mode 100644
+index 0000000000000000000000000000000000000000..875b56d60c00ee176f505f74f5d2614fdea7258c
+--- /dev/null
++++ b/macros/run_Co60.mac
+@@ -0,0 +1,13 @@
++/run/verbose 1
++/event/verbose 0
++/tracking/verbose 0
++/wbls/output/file Co60_wbls.root
++/wbls/source/isotope Co60
++/wbls/sphere/radius 10 cm
++/wbls/cuvette/radius 1 cm
++/wbls/cuvette/height 4 cm
++/wbls/cuvette/insertion 1 cm
++/wbls/wbls/lightYield 9000 1/MeV
++/wbls/spectralon/reflectivity 0.98
++/run/initialize
++/run/beamOn 100
+diff --git a/macros/run_Cs137.mac b/macros/run_Cs137.mac
+new file mode 100644
+index 0000000000000000000000000000000000000000..dabd00cebc02d90f7c8a61b32309baa1f6179bce
+--- /dev/null
++++ b/macros/run_Cs137.mac
+@@ -0,0 +1,29 @@
++# Batch example for Cs-137.  Geometry/material commands must appear before /run/initialize.
++/run/verbose 1
++/event/verbose 0
++/tracking/verbose 0
++
++# Geometry knobs: sphere radius, ports, cuvette, and source disk.
++/wbls/sphere/radius 10 cm
++/wbls/ports/sampleDiameter 3 cm
++/wbls/ports/largePMTDiameter 5 cm
++/wbls/ports/smallPMTDiameter 2.5 cm
++/wbls/cuvette/radius 1 cm
++/wbls/cuvette/height 4 cm
++/wbls/cuvette/wall 1 mm
++/wbls/cuvette/insertion 1 cm
++/wbls/source/radius 4 mm
++/wbls/source/thickness 1 mm
++/wbls/source/distance 2 mm
++
++# Optical knobs: WbLS yield/absorption, Spectralon reflectivity, PMT QE scales.
++/wbls/wbls/lightYield 9000 1/MeV
++/wbls/wbls/absScale 1.0
++/wbls/spectralon/reflectivity 0.98
++/wbls/pmt/largeQEScale 1.0
++/wbls/pmt/smallQEScale 1.0
++/wbls/output/file Cs137_wbls.root
++/wbls/source/isotope Cs137
++
++/run/initialize
++/run/beamOn 100
+diff --git a/macros/run_Na22.mac b/macros/run_Na22.mac
+new file mode 100644
+index 0000000000000000000000000000000000000000..a139c22b2b701c8999d49477e775360b6f9c0daf
+--- /dev/null
++++ b/macros/run_Na22.mac
+@@ -0,0 +1,13 @@
++/run/verbose 1
++/event/verbose 0
++/tracking/verbose 0
++/wbls/output/file Na22_wbls.root
++/wbls/source/isotope Na22
++/wbls/sphere/radius 10 cm
++/wbls/cuvette/radius 1 cm
++/wbls/cuvette/height 4 cm
++/wbls/cuvette/insertion 1 cm
++/wbls/wbls/lightYield 9000 1/MeV
++/wbls/spectralon/reflectivity 0.98
++/run/initialize
++/run/beamOn 100
+diff --git a/macros/vis.mac b/macros/vis.mac
+new file mode 100644
+index 0000000000000000000000000000000000000000..6f4f6222f6c2059d93d90e123cec79bb0e6ee408
+--- /dev/null
++++ b/macros/vis.mac
+@@ -0,0 +1,10 @@
++/run/initialize
++/vis/open OGL
++/vis/drawVolume
++/vis/viewer/set/viewpointVector 1 1 0.6
++/vis/viewer/set/style surface
++/vis/scene/add/trajectories smooth
++/vis/scene/endOfEventAction accumulate 10
++/tracking/storeTrajectory 1
++/wbls/source/isotope Cs137
++/run/beamOn 1
+diff --git a/scripts/plot_wbls.py b/scripts/plot_wbls.py
+new file mode 100755
+index 0000000000000000000000000000000000000000..438a70cb9041d757bc99afb2c9639a32e95a39e3
+--- /dev/null
++++ b/scripts/plot_wbls.py
+@@ -0,0 +1,82 @@
++#!/usr/bin/env python3
++"""Quick validation plots for the WbLS light-yield toy simulation.
++
++Usage:
++  python3 scripts/plot_wbls.py Cs137_wbls.root --outdir plots
++
++The script uses uproot/matplotlib so it can run outside a ROOT prompt.  It
++expects the `events` and optional `photons` TTrees produced by wblsSim.
++"""
++import argparse
++from pathlib import Path
++
++import matplotlib.pyplot as plt
++import numpy as np
++import uproot
++
++
++def hist(ax, data, title, xlabel, bins=50):
++    ax.hist(np.asarray(data), bins=bins, histtype="stepfilled", alpha=0.75)
++    ax.set_title(title)
++    ax.set_xlabel(xlabel)
++    ax.set_ylabel("Events")
++
++
++def main():
++    parser = argparse.ArgumentParser()
++    parser.add_argument("root_file")
++    parser.add_argument("--outdir", default="plots")
++    args = parser.parse_args()
++
++    outdir = Path(args.outdir)
++    outdir.mkdir(parents=True, exist_ok=True)
++
++    with uproot.open(args.root_file) as f:
++        events = f["events"].arrays(library="np")
++        photons = f["photons"].arrays(library="np") if "photons" in f else None
++
++    fig, axs = plt.subplots(2, 2, figsize=(10, 8))
++    hist(axs[0, 0], events["edepWbLS_keV"], "WbLS energy deposition", "Edep [keV]")
++    hist(axs[0, 1], events["nDetectedLargePMT"], "largePMT detected PE", "PE")
++    hist(axs[1, 0], events["nDetectedSmallPMT"], "smallPMT detected PE", "PE")
++    axs[1, 1].scatter(events["nDetectedLargePMT"], events["nDetectedSmallPMT"], s=10, alpha=0.6)
++    axs[1, 1].set_title("largePMT vs smallPMT")
++    axs[1, 1].set_xlabel("largePMT PE")
++    axs[1, 1].set_ylabel("smallPMT PE")
++    fig.tight_layout()
++    fig.savefig(outdir / "event_summary.png", dpi=160)
++
++    labels = ["large Cer", "small Cer", "large Scint", "small Scint"]
++    values = [
++        events["nDetectedLargePMT_Cerenkov"].sum(),
++        events["nDetectedSmallPMT_Cerenkov"].sum(),
++        events["nDetectedLargePMT_Scintillation"].sum(),
++        events["nDetectedSmallPMT_Scintillation"].sum(),
++    ]
++    fig, ax = plt.subplots(figsize=(8, 5))
++    ax.bar(labels, values)
++    ax.set_ylabel("Detected photons")
++    ax.set_title("Detected scintillation vs Cherenkov totals")
++    fig.tight_layout()
++    fig.savefig(outdir / "detected_process_counts.png", dpi=160)
++
++    if photons is not None and len(photons["wavelength_nm"]):
++        fig, axs = plt.subplots(1, 2, figsize=(11, 4))
++        for pmt_id, name in [(0, "largePMT"), (1, "smallPMT")]:
++            mask = photons["pmtID"] == pmt_id
++            axs[0].hist(photons["wavelength_nm"][mask], bins=60, histtype="step", label=name)
++            axs[1].hist(photons["detectionTime_ns"][mask], bins=60, histtype="step", label=name)
++        axs[0].set_xlabel("Wavelength [nm]")
++        axs[0].set_ylabel("Detected photons")
++        axs[0].set_title("Detected photon wavelengths")
++        axs[1].set_xlabel("Detection time [ns]")
++        axs[1].set_ylabel("Detected photons")
++        axs[1].set_title("Detection times")
++        for ax in axs:
++            ax.legend()
++        fig.tight_layout()
++        fig.savefig(outdir / "detected_photon_spectra_times.png", dpi=160)
++
++
++if __name__ == "__main__":
++    main()
+diff --git a/src/G4Manager.cc b/src/G4Manager.cc
+index d79ed4cf0060056f710310af0b43ec4e5052c96a..1eef7d75127a619dcdc7d543f1682ecc3db0eab7 100644
+--- a/src/G4Manager.cc
++++ b/src/G4Manager.cc
+@@ -1,111 +1,42 @@
+-#include "G4MTRunManager.hh"
+-#include "G4RunManager.hh"
+-#include "G4UImanager.hh"
+-
+-#include "G4DetectorConstruction.hh"
+ #include "G4ActionInitialization.hh"
+-#include "G4PhysicsList.hh"
++#include "G4DetectorConstruction.hh"
+ 
+ #include "FTFP_BERT.hh"
++#include "G4EmStandardPhysics_option4.hh"
+ #include "G4OpticalPhysics.hh"
+-#include "G4EmStandardPhysics_option1.hh"
+-
+-#include "G4VisExecutive.hh"
++#include "G4RunManager.hh"
+ #include "G4UIExecutive.hh"
+-#include "DetectorConfig.hh"
+-
+-
+-
+-// ============================================================================
+-
+-int main(int argc,char** argv) {
+-    
+-    // Seed the random number generator manually
+-//    G4long myseed = 345354;
+-    // G4long myseed = 3453540;
+-    // CLHEP::HepRandom::setTheSeed(myseed);
+-
+-   
+-    G4double RIndex = 1;
+-    if (argc==2) {
+-      RIndex = atof(argv [1]);
+-    }
+-    if (argc==3) {
+-      RIndex = atof(argv [2]);
+-    }
+-
+-  // struct DetectorConfig {
+-  // int sizeX, sizeY, sizeZ;
+-  // int pixelSizeY, pixelSizeZ;
+-  // };
+-
+-    // sizeX, 
+-    DetectorConfig GeoConf = {60,140,60,5,5};
+-
+-
+-    // ============================================================================
+-    // Run manager
+-    // this first step sets the number of cores available.
+-    // G4MTRunManager* runManager = new G4MTRunManager;
+-    // runManager->SetNumberOfThreads(1);
+-
+-    G4RunManager* runManager = new G4RunManager;
+-    runManager->SetVerboseLevel(0);
+-
+-    // declares the geometry of the simulation
+-    G4DetectorConstruction* detConstruction = new G4DetectorConstruction(RIndex, GeoConf);
+-    runManager->SetUserInitialization(detConstruction);
+-
+-    // declares the physics of the simulation
+-    G4VModularPhysicsList* physicsList = new FTFP_BERT();
+-    physicsList->ReplacePhysics(new G4EmStandardPhysics_option1());
+-    G4OpticalPhysics* opticalPhysics = new G4OpticalPhysics();
+-
+-    physicsList->RegisterPhysics(opticalPhysics);
+-    runManager->SetUserInitialization(physicsList);
+-
+-    // declares the first action of the simulation
+-    G4ActionInitialization* actionInitialization = new G4ActionInitialization(detConstruction, GeoConf);
+-    runManager->SetUserInitialization(actionInitialization);
+-    
+-    // visualization manager
+-    G4VisManager* visManager = new G4VisExecutive;
+-    visManager->Initialize();
+-    
+-    // Initialize G4 kernel
+-    runManager->Initialize();
+-    
+-    // ============================================================================
+-    // User Interface
+-    
+-    G4UImanager* UImanager = G4UImanager::GetUIpointer();
+-    
+-    // Define UI session for interactive mode
+-    if (argc < 3) {
++#include "G4UImanager.hh"
++#include "G4VisExecutive.hh"
+ 
+-      G4UIExecutive * ui = new G4UIExecutive(argc,argv);
++int main(int argc, char** argv) {
++  auto* runManager = new G4RunManager;
+ 
+-      UImanager->ApplyCommand("/control/execute vis.mac");
++  auto* detector = new G4DetectorConstruction;
++  runManager->SetUserInitialization(detector);
+ 
+-      ui->SessionStart();
+-      delete ui;
++  auto* physics = new FTFP_BERT;
++  physics->ReplacePhysics(new G4EmStandardPhysics_option4());
++  auto* optical = new G4OpticalPhysics;
++  physics->RegisterPhysics(optical);
++  runManager->SetUserInitialization(physics);
+ 
+-    } else if (argc == 3) {
+-      
+-      G4String command = "/control/execute ";
+-      G4String fileName = argv[1];
+-      UImanager->ApplyCommand(command+fileName);
+-      
+-    }
+-    
+-    // ============================================================================
+-    // Delete
++  runManager->SetUserInitialization(new G4ActionInitialization(detector));
+ 
+-    delete visManager;
++  auto* visManager = new G4VisExecutive;
++  visManager->Initialize();
+ 
+-    delete runManager;
++  auto* uiManager = G4UImanager::GetUIpointer();
++  if (argc > 1) {
++    uiManager->ApplyCommand(G4String("/control/execute ") + argv[1]);
++  } else {
++    auto* ui = new G4UIExecutive(argc, argv);
++    uiManager->ApplyCommand("/control/execute vis.mac");
++    ui->SessionStart();
++    delete ui;
++  }
+ 
+-    return 0;
++  delete visManager;
++  delete runManager;
++  return 0;
+ }
+-
+-// ============================================================================
+diff --git a/src/include/DetectorConfig.hh b/src/include/DetectorConfig.hh
+index 8d168c82ab85bb88225b661c966520c574f13c7e..f5228cc87d6709d6b715bdb5d52e1e0df612f2e4 100644
+--- a/src/include/DetectorConfig.hh
++++ b/src/include/DetectorConfig.hh
+@@ -1,10 +1,43 @@
+-// DetectorConfig.hh
+ #ifndef DETECTOR_CONFIG_HH
+ #define DETECTOR_CONFIG_HH
+ 
++#include "globals.hh"
++#include "G4SystemOfUnits.hh"
++
++// Central edit point for the toy WbLS light-yield setup.  Every value also has
++// a matching /wbls/... UI command where runtime changes are useful.  Keep this
++// struct deliberately simple so optical constants can be replaced later by a
++// file reader without changing the detector code.
+ struct DetectorConfig {
+-    int sizeX, sizeY, sizeZ;
+-    double pixelSizeY, pixelSizeZ;
++  // Integrating sphere and ports.
++  G4double sphereInnerRadius = 10.0 * cm;   // edit sphere radius here
++  G4double sphereWallThickness = 5.0 * mm;
++  G4double samplePortDiameter = 3.0 * cm;   // edit top/sample port diameter here
++  G4double largePMTPortDiameter = 5.0 * cm; // edit +x PMT port diameter here
++  G4double smallPMTPortDiameter = 2.5 * cm; // edit -x PMT port diameter here
++
++  // Cuvette/sample dimensions.  The cylinder axis is z; z=+R is the top of the
++  // sphere.  positive cuvetteInsertion places the lower part inside the sphere.
++  G4double cuvetteOuterRadius = 1.0 * cm;   // edit cuvette dimensions here
++  G4double cuvetteHeight = 4.0 * cm;
++  G4double cuvetteWallThickness = 1.0 * mm;
++  G4double cuvetteInsertion = 1.0 * cm;
++
++  // Disk gamma-source geometry.
++  G4double sourceRadius = 4.0 * mm;
++  G4double sourceThickness = 1.0 * mm;
++  G4double sourceDistanceAboveSample = 2.0 * mm;
++
++  // Optical/material knobs.  Spectra and QE curves are in DetectorConstruction.
++  G4double wblsLightYield = 9000.0 / MeV;   // edit WbLS scintillation yield here
++  G4double wblsDecayTime = 5.0 * ns;
++  G4double wblsBirksConstant = 0.10 * mm / MeV;
++  G4double wblsAbsLengthScale = 1.0;        // multiply default absorption lengths
++  G4double spectralonReflectivity = 0.98;   // diffuse Lambertian reflector default
++  G4double largePMTQEScale = 1.0;           // multiply default QE curve
++  G4double smallPMTQEScale = 1.0;
++
++  G4bool savePhotonTree = true;
+ };
+ 
+-#endif // DETECTOR_CONFIG_HH
+\ No newline at end of file
++#endif
+diff --git a/src/include/G4ActionInitialization.hh b/src/include/G4ActionInitialization.hh
+index 64cee8fbe8b0ed5366fe755921373dc2a5cba07f..73fa9346ecf3a45827ec1ba44825373e0585597a 100644
+--- a/src/include/G4ActionInitialization.hh
++++ b/src/include/G4ActionInitialization.hh
+@@ -1,26 +1,20 @@
+ #ifndef G4ActionInitialization_h
+ #define G4ActionInitialization_h 1
+ 
+ #include "G4VUserActionInitialization.hh"
+-#include "DetectorConfig.hh"
+ 
+ class G4DetectorConstruction;
+ 
+-/// Action initialization class.
+ class G4ActionInitialization : public G4VUserActionInitialization {
+-    
+-  public:
+-    G4ActionInitialization(G4DetectorConstruction*, DetectorConfig& config);
+-    virtual ~G4ActionInitialization();
++public:
++  explicit G4ActionInitialization(G4DetectorConstruction* detector);
++  ~G4ActionInitialization() override = default;
+ 
+-    virtual void BuildForMaster() const;
+-    virtual void Build() const;
++  void BuildForMaster() const override;
++  void Build() const override;
+ 
+-  private:
+-    G4DetectorConstruction* fDetConstruction;
+-    DetectorConfig fConfig;
++private:
++  G4DetectorConstruction* fDetector;
+ };
+ 
+ #endif
+-
+-    
+diff --git a/src/include/G4DetectorConstruction.hh b/src/include/G4DetectorConstruction.hh
+index 25d527a634ee9905845164859508cf91b54e34fc..bb8ed4798db2ca2013632d844b612a9ec3387e7a 100644
+--- a/src/include/G4DetectorConstruction.hh
++++ b/src/include/G4DetectorConstruction.hh
+@@ -1,48 +1,42 @@
+ #ifndef G4DetectorConstruction_h
+ #define G4DetectorConstruction_h 1
+ 
++#include "DetectorConfig.hh"
+ #include "G4VUserDetectorConstruction.hh"
+ #include "globals.hh"
+-#include "DetectorConfig.hh"
+ 
++class G4GenericMessenger;
++class G4LogicalVolume;
++class G4MaterialPropertiesTable;
+ class G4VPhysicalVolume;
+ 
+-
+-  // struct DetectorConfig {
+-  // int sizeX, sizeY, sizeZ;
+-  // int pixelSizeY, pixelSizeZ;
+-  // };
+-
+-class G4DetectorConstruction : public G4VUserDetectorConstruction
+-{
+-  public:
+-    G4DetectorConstruction(G4double RIndex, DetectorConfig& GeoConf);
+-    virtual ~G4DetectorConstruction();
+-
+-  public:
+-    virtual G4VPhysicalVolume* Construct();
+-
+-  private:
+-    // methods
+-    //
+-    void DefineMaterials();
+-    G4VPhysicalVolume* DefineVolumes();
+-
+-    DetectorConfig fConfig;
+-
+-
+-    // World
+-    G4double world_x, world_y, world_z;
+-
+-    G4double VLAr_x, VLAr_y, VLAr_z;
+-
+-    G4double Pixel_x, Pixel_y, Pixel_z;
+-
+-    G4double clearance;
+-
+-    G4bool  fCheckOverlaps; // option to activate checking of volumes overlaps
+-
+-    G4double Refr_Index;
++class G4DetectorConstruction : public G4VUserDetectorConstruction {
++public:
++  G4DetectorConstruction();
++  ~G4DetectorConstruction() override;
++
++  G4VPhysicalVolume* Construct() override;
++
++  const DetectorConfig& GetConfig() const { return fConfig; }
++  G4LogicalVolume* GetWbLSLogical() const { return fWbLSLogical; }
++  G4LogicalVolume* GetLargePMTLogical() const { return fLargePMTLogical; }
++  G4LogicalVolume* GetSmallPMTLogical() const { return fSmallPMTLogical; }
++
++private:
++  void DefineCommands();
++  void DefineMaterials();
++  G4VPhysicalVolume* DefineVolumes();
++  G4MaterialPropertiesTable* MakeWbLSMPT() const;
++  G4MaterialPropertiesTable* MakeQuartzMPT() const;
++  G4MaterialPropertiesTable* MakePMTMPT(G4bool large) const;
++  G4MaterialPropertiesTable* MakeSpectralonMPT() const;
++
++  DetectorConfig fConfig;
++  G4GenericMessenger* fMessenger = nullptr;
++  G4LogicalVolume* fWbLSLogical = nullptr;
++  G4LogicalVolume* fLargePMTLogical = nullptr;
++  G4LogicalVolume* fSmallPMTLogical = nullptr;
++  G4bool fCheckOverlaps = true;
+ };
+ 
+-#endif /*G4DetectorConstruction_h*/
++#endif
+diff --git a/src/include/G4EventAction.hh b/src/include/G4EventAction.hh
+index b6161c89b5d8f62564cb0a01a17ed8834fe67365..f855f11a2b3c0de04512aa5637e8d5e0c266a666 100644
+--- a/src/include/G4EventAction.hh
++++ b/src/include/G4EventAction.hh
+@@ -1,37 +1,45 @@
+-/// \file G4EventAction.hh
+-/// \brief Definition of the G4EventAction class
+-
+ #ifndef G4EventAction_h
+ #define G4EventAction_h 1
+ 
+-#include "G4UserEventAction.hh"
+ #include "globals.hh"
++#include "G4UserEventAction.hh"
++#include "G4ThreeVector.hh"
+ 
+-/// Event action class
+-///
+-/// It defines data members to hold the energy deposit and track lengths
+-/// of charged particles in Absober and Gap layers:
+-/// - fEnergyAbs, fEnergyGap, fTrackLAbs, fTrackLGap
+-/// which are collected step by step via the functions
+-/// - AddAbs(), AddGap()
++class G4DetectorConstruction;
+ 
+-class G4EventAction : public G4UserEventAction
+-{
+-public:
+-    G4EventAction();
+-    virtual ~G4EventAction();
+-    
+-    virtual void  BeginOfEventAction(const G4Event* event);
+-    virtual void    EndOfEventAction(const G4Event* event);
+-    
+-    
++class G4EventAction : public G4UserEventAction {
+ public:
+-    G4int nOfReflections;
+-    G4int nOfDetections;
++  explicit G4EventAction(const G4DetectorConstruction* detector);
++  ~G4EventAction() override = default;
++
++  void BeginOfEventAction(const G4Event* event) override;
++  void EndOfEventAction(const G4Event* event) override;
++
++  void AddWbLSEdep(G4double edep) { fEdepWbLS += edep; }
++  void AddProducedPhoton(const G4String& process);
++  void RecordPrimary(const G4String& isotope, G4double energy);
++  void RecordDetection(G4int pmtID, const G4String& process, G4double wavelength,
++                       G4double time, G4int parentID, const G4String& creatorProcess,
++                       const G4ThreeVector& origin, const G4ThreeVector& hit);
++
++  const G4String& CurrentIsotope() const { return fSourceType; }
++
++private:
++  const G4DetectorConstruction* fDetector;
++  G4int fEventID = -1;
++  G4String fSourceType = "Cs137";
++  G4int fNPrimaryGammas = 0;
++  G4double fPrimaryEnergySum = 0.0;
++  G4double fEdepWbLS = 0.0;
++  G4int fNOpticalProduced = 0;
++  G4int fNScintProduced = 0;
++  G4int fNCerenkovProduced = 0;
++  G4int fNDetLarge = 0;
++  G4int fNDetSmall = 0;
++  G4int fNDetLargeScint = 0;
++  G4int fNDetLargeCerenkov = 0;
++  G4int fNDetSmallScint = 0;
++  G4int fNDetSmallCerenkov = 0;
+ };
+ 
+-
+-//....oooOO0OOooo........oooOO0OOooo........oooOO0OOooo........oooOO0OOooo......
+-
+ #endif
+-
+diff --git a/src/include/G4PrimaryGeneratorAction.hh b/src/include/G4PrimaryGeneratorAction.hh
+index f24771a5b6ab241881638f187dd3b279114a944d..0e82339d1401d744e0c5e4c704c017336891b742 100644
+--- a/src/include/G4PrimaryGeneratorAction.hh
++++ b/src/include/G4PrimaryGeneratorAction.hh
+@@ -1,34 +1,31 @@
+ #ifndef G4PrimaryGeneratorAction_h
+ #define G4PrimaryGeneratorAction_h 1
+ 
++#include "DetectorConfig.hh"
+ #include "G4VUserPrimaryGeneratorAction.hh"
+ #include "globals.hh"
+ 
+-class G4ParticleGun;
+ class G4Event;
+-class G4PrimaryGeneratorMessenger;
+-
+-// ============================================================================
++class G4EventAction;
++class G4GenericMessenger;
++class G4ParticleGun;
+ 
+ class G4PrimaryGeneratorAction : public G4VUserPrimaryGeneratorAction {
+-    
+-  public:
+-    G4PrimaryGeneratorAction();
+-   ~G4PrimaryGeneratorAction();
++public:
++  G4PrimaryGeneratorAction(const DetectorConfig& config, G4EventAction* eventAction);
++  ~G4PrimaryGeneratorAction() override;
+ 
+-  public:
+-    void GeneratePrimaries(G4Event*);
++  void GeneratePrimaries(G4Event* event) override;
+ 
+-    void SetOptPhotonPolar();
+-    void SetOptPhotonPolar(G4double);
++private:
++  void DefineCommands();
++  void EmitGamma(G4Event* event, G4double energy);
+ 
+-    bool flag_alpha;
+-
+-  private:
+-    G4ParticleGun* particleGun;
+-    
++  DetectorConfig fConfig;
++  G4EventAction* fEventAction;
++  G4ParticleGun* fGun;
++  G4GenericMessenger* fMessenger = nullptr;
++  G4String fIsotope = "Cs137";
+ };
+ 
+-// ============================================================================
+-
+-#endif /*G4PrimaryGeneratorAction_h*/
++#endif
+diff --git a/src/include/G4RunAction.hh b/src/include/G4RunAction.hh
+index fb866623740b873099599fa22a98d5f039827492..54fe2267aa5a0ed04dd015084a46003e56b5f3f4 100644
+--- a/src/include/G4RunAction.hh
++++ b/src/include/G4RunAction.hh
+@@ -1,43 +1,24 @@
+ #ifndef G4RunAction_h
+ #define G4RunAction_h 1
+ 
+-#include "globals.hh"
+ #include "G4UserRunAction.hh"
++#include "globals.hh"
+ 
+-#include "G4Run.hh"
+-#include "G4RunManager.hh"
+-#include "G4EventManager.hh"
+-#include "g4root.hh"
+-#include "DetectorConfig.hh"
+-
+-#include "G4NeutronHPManager.hh"
+-
+-//....oooOO0OOooo........oooOO0OOooo........oooOO0OOooo........oooOO0OOooo......
+-
+-class G4Timer;
++class G4GenericMessenger;
+ class G4Run;
+ 
+-class G4RunAction : public G4UserRunAction
+-{
+-  public:
+-    G4RunAction(const DetectorConfig& config);
+-   ~G4RunAction();
+-  static G4NeutronHPManager *   GetInstance ();
+-
++class G4RunAction : public G4UserRunAction {
++public:
++  G4RunAction();
++  ~G4RunAction() override;
+ 
+-  public:
+-    void BeginOfRunAction(const G4Run* aRun);
+-    void EndOfRunAction(const G4Run* aRun);
+-    G4int nOfReflections_Total;
+-    G4int nOfDetections_Total;
+-// Soma do tempo de voo de todos os fotons detectados
+-    G4double TOF_Detections_Total;
++  void BeginOfRunAction(const G4Run* run) override;
++  void EndOfRunAction(const G4Run* run) override;
+ 
+-  private:
+-    G4Timer* timer;
+-    const DetectorConfig fConfig;
++private:
++  void DefineCommands();
++  G4String fOutputFile = "wbls_lightyield.root";
++  G4GenericMessenger* fMessenger = nullptr;
+ };
+ 
+-//....oooOO0OOooo........oooOO0OOooo........oooOO0OOooo........oooOO0OOooo......
+-
+-#endif /*G4RunAction_h*/
++#endif
+diff --git a/src/include/G4SteppingAction.hh b/src/include/G4SteppingAction.hh
+index 4df6a1743db6d03b470d93f5cc97f147764f42b6..565cfc353331a6cb1532290c5219a8d38aed4d59 100644
+--- a/src/include/G4SteppingAction.hh
++++ b/src/include/G4SteppingAction.hh
+@@ -1,34 +1,24 @@
+ #ifndef G4SteppingAction_h
+ #define G4SteppingAction_h 1
+ 
+-#include "G4RunAction.hh"
+-#include "G4EventAction.hh"
+-#include "G4PrimaryGeneratorAction.hh"
+-#include "G4Run.hh"
+-#include "G4RunManager.hh"
+-#include "G4EventManager.hh"
+-#include "G4SteppingManager.hh"
+ #include "G4UserSteppingAction.hh"
+-#include "G4SystemOfUnits.hh"
+ 
++class G4DetectorConstruction;
+ class G4EventAction;
+-class G4RunAction;
+-class G4PrimaryGeneratorAction;
++class G4Step;
+ 
+-//Stepping action class
+ class G4SteppingAction : public G4UserSteppingAction {
++public:
++  G4SteppingAction(const G4DetectorConstruction* detector, G4EventAction* eventAction);
++  ~G4SteppingAction() override = default;
+ 
+-   public:
+-       G4SteppingAction(G4EventAction *eventAction, G4RunAction* runAction, G4PrimaryGeneratorAction* PrimaryGeneratorAction);
+-	virtual ~G4SteppingAction ();
++  void UserSteppingAction(const G4Step* step) override;
+ 
+-	virtual void UserSteppingAction (const G4Step*);
++private:
++  G4double QuantumEfficiency(const G4Step* step) const;
+ 
+-   private:
+-	G4int fEventNumber;
+-   G4EventAction* fEventAction;
+-   G4RunAction* fRunAction;
+-   G4PrimaryGeneratorAction* fPrimaryGeneratorAction;
+-   G4double accumulatedEnergy = 0.0;
++  const G4DetectorConstruction* fDetector;
++  G4EventAction* fEventAction;
+ };
++
+ #endif
+diff --git a/src/include/PhotonTrackInfo.hh b/src/include/PhotonTrackInfo.hh
+new file mode 100644
+index 0000000000000000000000000000000000000000..fec466388686f08d31f2f0dd63da33b8bf149f24
+--- /dev/null
++++ b/src/include/PhotonTrackInfo.hh
+@@ -0,0 +1,25 @@
++#ifndef PHOTON_TRACK_INFO_HH
++#define PHOTON_TRACK_INFO_HH
++
++#include "G4ThreeVector.hh"
++#include "G4VUserTrackInformation.hh"
++#include "globals.hh"
++
++class PhotonTrackInfo : public G4VUserTrackInformation {
++public:
++  PhotonTrackInfo(const G4String& process = "unknown",
++                  const G4ThreeVector& origin = G4ThreeVector(),
++                  G4int parent = -1)
++      : fProcess(process), fOrigin(origin), fParentID(parent) {}
++
++  const G4String& Process() const { return fProcess; }
++  const G4ThreeVector& Origin() const { return fOrigin; }
++  G4int ParentID() const { return fParentID; }
++
++private:
++  G4String fProcess;
++  G4ThreeVector fOrigin;
++  G4int fParentID;
++};
++
++#endif
+diff --git a/src/src/G4ActionInitialization.cc b/src/src/G4ActionInitialization.cc
+index 5bfc59e682d410034b58023113a973650d73b634..b51a46b7c10972fbbc996b37758deabfb39c558b 100644
+--- a/src/src/G4ActionInitialization.cc
++++ b/src/src/G4ActionInitialization.cc
+@@ -1,43 +1,20 @@
+ #include "G4ActionInitialization.hh"
++
+ #include "G4DetectorConstruction.hh"
+ #include "G4EventAction.hh"
+-
+ #include "G4PrimaryGeneratorAction.hh"
+ #include "G4RunAction.hh"
+ #include "G4SteppingAction.hh"
+ 
+-// ============================================================================
+-
+-G4ActionInitialization::G4ActionInitialization
+-                                (G4DetectorConstruction* detConstruction, DetectorConfig& config)
+-: G4VUserActionInitialization(), fDetConstruction(detConstruction), fConfig(config) 
+-{;}
+-
+-// ============================================================================
+-
+-G4ActionInitialization::~G4ActionInitialization() {;}
++G4ActionInitialization::G4ActionInitialization(G4DetectorConstruction* detector)
++    : fDetector(detector) {}
+ 
+-// ============================================================================
+-
+-void G4ActionInitialization::BuildForMaster() const {
+-    
+-    SetUserAction(new G4RunAction(fConfig));
+-    
+-}
+-
+-// ============================================================================
++void G4ActionInitialization::BuildForMaster() const { SetUserAction(new G4RunAction); }
+ 
+ void G4ActionInitialization::Build() const {
+-    
+-    G4EventAction* eventAction = new G4EventAction;
+-    G4RunAction* runAction = new G4RunAction(fConfig);
+-    G4PrimaryGeneratorAction* PrimaryGeneratorAction = new G4PrimaryGeneratorAction;
+-    
+-    SetUserAction(new G4PrimaryGeneratorAction);
+-    SetUserAction(new G4RunAction(fConfig));
+-    SetUserAction(eventAction);
+-    SetUserAction(new G4SteppingAction(eventAction, runAction, PrimaryGeneratorAction));
+-    
+-}  
+-
+-// ============================================================================
++  SetUserAction(new G4RunAction);
++  auto* eventAction = new G4EventAction(fDetector);
++  SetUserAction(eventAction);
++  SetUserAction(new G4PrimaryGeneratorAction(fDetector->GetConfig(), eventAction));
++  SetUserAction(new G4SteppingAction(fDetector, eventAction));
++}
+diff --git a/src/src/G4DetectorConstruction.cc b/src/src/G4DetectorConstruction.cc
+index 0856f3e315a92801d6591ec4b0747a423f58e6b8..3e5ac28b19262c69119343f7bfbae78400adeebb 100644
+--- a/src/src/G4DetectorConstruction.cc
++++ b/src/src/G4DetectorConstruction.cc
+@@ -1,239 +1,270 @@
+-    #include "G4DetectorConstruction.hh"
+-    #include "G4Constantes.hh"
+-
+-    #include "G4Material.hh"
+-    #include "G4Element.hh"
+-    #include "G4NistManager.hh"
+-
+-    #include "G4Box.hh"
+-    #include "G4Orb.hh"
+-    #include "G4Tubs.hh"
+-    #include "G4Sphere.hh"
+-    #include "G4Trd.hh"
+-
+-    #include "G4LogicalVolume.hh"
+-    #include "G4ThreeVector.hh"
+-    #include "G4PVPlacement.hh"
+-    #include "G4AutoDelete.hh"
+-    #include "G4LogicalBorderSurface.hh"
+-    #include "G4LogicalSkinSurface.hh"
+-    #include "G4OpticalSurface.hh"
+-
+-    #include "G4SubtractionSolid.hh"
+-    #include "G4VSolid.hh"
+-    #include "G4UnionSolid.hh"
+-    #include "G4VPVParameterisation.hh"
+-    #include "G4PVParameterised.hh"
+-
+-
+-    #include "G4VisAttributes.hh"
+-    #include "G4Colour.hh"
+-
+-    #include "G4PhysicalConstants.hh"
+-    #include "G4SystemOfUnits.hh"
+-    #include "globals.hh"
+-
+-    #include "G4Navigator.hh"
+-    #include "G4VPhysicalVolume.hh"
+-    #include "G4TransportationManager.hh"
+-
+-    #include <fstream>
+-    using namespace std;
+-
+-    #include "G4NeutronHPManager.hh"
+-    #include <G4HadronicProcessStore.hh>
+-    
+-    //================================================================================
+-
+-    G4DetectorConstruction::G4DetectorConstruction (G4double RIndex, DetectorConfig& GeoConf)
+-    : G4VUserDetectorConstruction(), fCheckOverlaps(true), Refr_Index(RIndex),  fConfig(GeoConf) {
+-
+-        G4NeutronHPManager::GetInstance()->SetVerboseLevel(0);
+-        G4HadronicProcessStore::Instance()->SetVerbose(0);
+-        // World
+-        world_x = 400 * cm * 0.5;
+-        world_y = 400 * cm * 0.5;
+-        world_z = 400 * cm * 0.5;
+-
+-        // VLAr_x =  50 * cm * 0.5;
+-        // VLAr_y =  50 * cm * 0.5;
+-        // VLAr_z = 100 * cm * 0.5;
+-        
+-        VLAr_x =  GeoConf.sizeX * cm * 0.5;
+-        VLAr_y =  GeoConf.sizeY * cm * 0.5;
+-        VLAr_z =  GeoConf.sizeZ * cm * 0.5;
+-
+-        Pixel_x =  GeoConf.sizeX * cm * 0.5;
+-        Pixel_y =  GeoConf.pixelSizeY * cm * 0.5;
+-        Pixel_z =  GeoConf.pixelSizeZ * cm * 0.5;
+-
+-    }
+-
+-    //================================================================================
+-
+-    G4DetectorConstruction::~G4DetectorConstruction (){;}
+-
+-
+-    //================================================================================
+-
+-    class Full3DParameterisation : public G4VPVParameterisation {
+-    public:
+-        Full3DParameterisation(G4int nY, G4int nZ, G4double pitchY, G4double pitchZ)
+-            : fNY(nY), fNZ(nZ), fPitchY(pitchY), fPitchZ(pitchZ) {}
+-
+-        void ComputeTransformation(G4int copyNo, G4VPhysicalVolume* physVol) const override {
+-            G4int iz = copyNo / fNY;
+-            G4int iy = copyNo % fNY;
+-
+-            G4double y = (-fNY/2.0 + iy + 0.5) * fPitchY;
+-            // G4double z = (-fNZ/2.0 + iz + 0.5) * fPitchZ;
+-            G4double z = (-fNZ/2.0 + iz + 0.5) * fPitchZ;
+-
+-            physVol->SetTranslation(G4ThreeVector(0., y, z));
+-        }
+-
+-        void ComputeDimensions(G4Box& box, G4int, const G4VPhysicalVolume*) const override {
+-            // box is already defined — nothing to do here if you're using a fixed size
+-        }
+-
+-    private:
+-        G4int fNY;
+-        G4int fNZ;
+-        G4double fPitchY;
+-        G4double fPitchZ;
+-    };
+-
+-    //================================================================================
+-
+-    G4VPhysicalVolume* G4DetectorConstruction::Construct () {
+-
+-        // Define materials 
+-        DefineMaterials();
+-        
+-        // Define volumes
+-        return DefineVolumes();
+-        
+-    }
+-
+-    //================================================================================
+-
+-    void G4DetectorConstruction::DefineMaterials() {
+-        
+-        G4NistManager* nistManager = G4NistManager::Instance();
+-
+-        nistManager->FindOrBuildMaterial("G4_lAr");
+-        nistManager->FindOrBuildMaterial("G4_Galactic");
+-        nistManager->FindOrBuildMaterial("G4_URANIUM_MONOCARBIDE");
+-
+-        // G4cout << *(G4Material::GetMaterialTable()) << G4endl;
+-        
+-    }
+-
+-    //================================================================================
+-
+-    G4VPhysicalVolume* G4DetectorConstruction::DefineVolumes() {
+-        // Get materials
+-       
+-        G4Material* Vacuo       = G4Material::GetMaterial("G4_Galactic");       
+-        G4Material* LAr         = G4Material::GetMaterial("G4_lAr");
+-        G4Material* HighSP      = G4Material::GetMaterial("G4_URANIUM_MONOCARBIDE");
+-
+-    //%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% Construction %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+-
+-    //====================== World ===========-===========
+-
+-        G4Box*              WorldS          = new G4Box (MUNDO_NOME, world_x, world_y, world_z);
+-
+-        G4LogicalVolume*    WorldLV         = new G4LogicalVolume (WorldS, Vacuo, MUNDO_NOME);
+-
+-        G4VPhysicalVolume*  WorldPV         = new G4PVPlacement (0, G4ThreeVector (), WorldLV, MUNDO_NOME, 0, true, 0, fCheckOverlaps);
+-
+-    //======================= Parametric volumes =======================
+-
+-    G4int nY = VLAr_y/Pixel_y;
+-    G4int nZ = VLAr_z/Pixel_z;
+-    G4int nTotal = nY * nZ;
+-
+-    G4float gapsize  = 35*cm;
+-
+-    // Slice volume (same dimensions for all copies)
+-    auto sliceSolid = new G4Box("Slice", Pixel_x, Pixel_y, Pixel_z);
+-    auto sliceLogic = new G4LogicalVolume(sliceSolid, LAr, "Slice");
+-
+-    // M0_Mother volume for stack
+-    auto M0_motherSolid = new G4Box("M0_Mother", VLAr_x, VLAr_y, VLAr_z);
+-    auto M0_motherLogic = new G4LogicalVolume(M0_motherSolid, Vacuo, "M0_Mother");
+-    new G4PVPlacement(0, G4ThreeVector (gapsize,0,-gapsize), M0_motherLogic, "M0_Mother", WorldLV, false, 0);
+-
+-
+-    new G4PVParameterised("Prisms_M0",
+-                          sliceLogic,
+-                          M0_motherLogic,
+-                          kUndefined,  // Not tied to a single axis
+-                          nTotal,
+-                          new Full3DParameterisation(nY, nZ, Pixel_y*2, Pixel_z*2));
+-
+-
+-    // M1_Mother volume for stack
+-    auto M1_motherSolid = new G4Box("M1_Mother", VLAr_x, VLAr_y, VLAr_z);
+-    auto M1_motherLogic = new G4LogicalVolume(M0_motherSolid, Vacuo, "M1_Mother");
+-    new G4PVPlacement(0, G4ThreeVector (-gapsize,0,-gapsize), M1_motherLogic, "M1_Mother", WorldLV, false, 0);
+-
+-
+-    new G4PVParameterised("Prisms_M1",
+-                          sliceLogic,
+-                          M1_motherLogic,
+-                          kUndefined,  // Not tied to a single axis
+-                          nTotal,
+-                          new Full3DParameterisation(nY, nZ, Pixel_y*2, Pixel_z*2));
+-
+-
+-    // M0_Mother volume for stack
+-    auto M2_motherSolid = new G4Box("M2_Mother", VLAr_x, VLAr_y, VLAr_z);
+-    auto M2_motherLogic = new G4LogicalVolume(M2_motherSolid, Vacuo, "M2_Mother");
+-    new G4PVPlacement(0, G4ThreeVector (gapsize,0,gapsize), M2_motherLogic, "M2_Mother", WorldLV, false, 0);
+-
+-
+-    new G4PVParameterised("Prisms_M2",
+-                          sliceLogic,
+-                          M2_motherLogic,
+-                          kUndefined,  // Not tied to a single axis
+-                          nTotal,
+-                          new Full3DParameterisation(nY, nZ, Pixel_y*2, Pixel_z*2));
+-
+-
+-    // M0_Mother volume for stack
+-    auto M3_motherSolid = new G4Box("M3_Mother", VLAr_x, VLAr_y, VLAr_z);
+-    auto M3_motherLogic = new G4LogicalVolume(M3_motherSolid, Vacuo, "M3_Mother");
+-    new G4PVPlacement(0, G4ThreeVector (-gapsize,0,gapsize), M3_motherLogic, "M3_Mother", WorldLV, false, 0);
+-
+-
+-    new G4PVParameterised("Prisms_M3",
+-                          sliceLogic,
+-                          M3_motherLogic,
+-                          kUndefined,  // Not tied to a single axis
+-                          nTotal,
+-                          new Full3DParameterisation(nY, nZ, Pixel_y*2, Pixel_z*2));
+-
+-
+-
+-
+-
+-        G4VisAttributes* grey  = new G4VisAttributes (G4Colour (0.5, 0.5, 0.5, 0.8));
+-        G4VisAttributes* blue  = new G4VisAttributes (G4Colour (0.5, 0.5, 1.0, 0.8));
+-        G4VisAttributes* red   = new G4VisAttributes (G4Colour (1.0, 0.5, 0.5, 0.8));
+-        G4VisAttributes* green = new G4VisAttributes (G4Colour (0.5, 1.0, 0.5, 0.8));
+-        grey->SetForceSolid (true);
+-        blue->SetForceSolid (true);
+-        red->SetForceSolid (true);
+-        green->SetForceSolid (true);
+-        M0_motherLogic->SetVisAttributes(grey);
+-        M1_motherLogic->SetVisAttributes(blue);
+-        M2_motherLogic->SetVisAttributes(red);
+-        M3_motherLogic->SetVisAttributes(green);
+-
+-        return WorldPV;
+-
+-
+-        
+-    }
+\ No newline at end of file
++#include "G4DetectorConstruction.hh"
++
++#include "G4Box.hh"
++#include "G4Colour.hh"
++#include "G4GenericMessenger.hh"
++#include "G4LogicalSkinSurface.hh"
++#include "G4LogicalVolume.hh"
++#include "G4Material.hh"
++#include "G4MaterialPropertiesTable.hh"
++#include "G4NistManager.hh"
++#include "G4OpticalSurface.hh"
++#include "G4PVPlacement.hh"
++#include "G4Sphere.hh"
++#include "G4SubtractionSolid.hh"
++#include "G4SystemOfUnits.hh"
++#include "G4Tubs.hh"
++#include "G4VisAttributes.hh"
++
++#include <algorithm>
++#include <vector>
++
++namespace {
++std::vector<G4double> EnergiesFromWavelengths(const std::vector<G4double>& wavelengths) {
++  std::vector<G4double> energies;
++  energies.reserve(wavelengths.size());
++  for (auto wl : wavelengths) energies.push_back(CLHEP::h_Planck * CLHEP::c_light / wl);
++  std::reverse(energies.begin(), energies.end()); // Geant4 wants increasing photon energy.
++  return energies;
++}
++
++std::vector<G4double> ReverseCopy(std::vector<G4double> values) {
++  std::reverse(values.begin(), values.end());
++  return values;
++}
++}
++
++G4DetectorConstruction::G4DetectorConstruction() { DefineCommands(); }
++G4DetectorConstruction::~G4DetectorConstruction() { delete fMessenger; }
++
++void G4DetectorConstruction::DefineCommands() {
++  fMessenger = new G4GenericMessenger(this, "/wbls/", "WbLS toy detector controls");
++  fMessenger->DeclarePropertyWithUnit("sphere/radius", "cm", fConfig.sphereInnerRadius,
++                                      "Inner integrating-sphere radius R.");
++  fMessenger->DeclarePropertyWithUnit("sphere/wall", "mm", fConfig.sphereWallThickness,
++                                      "Simple Spectralon shell thickness.");
++  fMessenger->DeclarePropertyWithUnit("ports/sampleDiameter", "cm", fConfig.samplePortDiameter,
++                                      "Top sample-port diameter (documentation/visual guide).") ;
++  fMessenger->DeclarePropertyWithUnit("ports/largePMTDiameter", "cm", fConfig.largePMTPortDiameter,
++                                      "+x large-PMT photocathode/port diameter.");
++  fMessenger->DeclarePropertyWithUnit("ports/smallPMTDiameter", "cm", fConfig.smallPMTPortDiameter,
++                                      "-x small-PMT photocathode/port diameter.");
++  fMessenger->DeclarePropertyWithUnit("cuvette/radius", "cm", fConfig.cuvetteOuterRadius,
++                                      "Outer cuvette radius Rcuvette.");
++  fMessenger->DeclarePropertyWithUnit("cuvette/height", "cm", fConfig.cuvetteHeight,
++                                      "Cuvette height Lcuvette.");
++  fMessenger->DeclarePropertyWithUnit("cuvette/wall", "mm", fConfig.cuvetteWallThickness,
++                                      "Quartz/glass wall thickness.");
++  fMessenger->DeclarePropertyWithUnit("cuvette/insertion", "cm", fConfig.cuvetteInsertion,
++                                      "Depth that the cuvette extends into the sphere.");
++  fMessenger->DeclarePropertyWithUnit("source/radius", "mm", fConfig.sourceRadius,
++                                      "Disk source radius.");
++  fMessenger->DeclarePropertyWithUnit("source/thickness", "mm", fConfig.sourceThickness,
++                                      "Disk source thickness.");
++  fMessenger->DeclarePropertyWithUnit("source/distance", "mm", fConfig.sourceDistanceAboveSample,
++                                      "Gap above the sample top to the source disk center.");
++  fMessenger->DeclarePropertyWithUnit("wbls/lightYield", "1/MeV", fConfig.wblsLightYield,
++                                      "WbLS scintillation yield in photons/MeV.");
++  fMessenger->DeclarePropertyWithUnit("wbls/decayTime", "ns", fConfig.wblsDecayTime,
++                                      "Single-component scintillation decay time.");
++  fMessenger->DeclarePropertyWithUnit("wbls/birks", "mm/MeV", fConfig.wblsBirksConstant,
++                                      "Birks constant for WbLS.");
++  fMessenger->DeclareProperty("wbls/absScale", fConfig.wblsAbsLengthScale,
++                              "Scale factor for the default WbLS absorption-length curve.");
++  fMessenger->DeclareProperty("spectralon/reflectivity", fConfig.spectralonReflectivity,
++                              "Diffuse reflector reflectivity scale/value.");
++  fMessenger->DeclareProperty("pmt/largeQEScale", fConfig.largePMTQEScale,
++                              "Scale factor for the large-PMT QE curve.");
++  fMessenger->DeclareProperty("pmt/smallQEScale", fConfig.smallPMTQEScale,
++                              "Scale factor for the small-PMT QE curve.");
++  fMessenger->DeclareProperty("output/savePhotonTree", fConfig.savePhotonTree,
++                              "Store one row per detected photon when true.");
++}
++
++G4VPhysicalVolume* G4DetectorConstruction::Construct() {
++  DefineMaterials();
++  return DefineVolumes();
++}
++
++void G4DetectorConstruction::DefineMaterials() {
++  auto* nist = G4NistManager::Instance();
++  nist->FindOrBuildMaterial("G4_AIR");
++  nist->FindOrBuildMaterial("G4_Galactic");
++  nist->FindOrBuildMaterial("G4_SILICON_DIOXIDE");
++  nist->FindOrBuildMaterial("G4_TEFLON");
++
++  auto* water = nist->FindOrBuildMaterial("G4_WATER");
++  auto* wbls = new G4Material("WbLS", water->GetDensity(), water, kStateLiquid);
++  wbls->SetMaterialPropertiesTable(MakeWbLSMPT());
++  wbls->GetIonisation()->SetBirksConstant(fConfig.wblsBirksConstant);
++
++  auto* quartz = G4Material::GetMaterial("G4_SILICON_DIOXIDE");
++  quartz->SetMaterialPropertiesTable(MakeQuartzMPT());
++
++  auto* pmtLarge = new G4Material("LargePhotocathodeVacuum", 1.e-25 * g / cm3, 1, kStateGas);
++  pmtLarge->AddElement(nist->FindOrBuildElement("H"), 1);
++  pmtLarge->SetMaterialPropertiesTable(MakePMTMPT(true));
++  auto* pmtSmall = new G4Material("SmallPhotocathodeVacuum", 1.e-25 * g / cm3, 1, kStateGas);
++  pmtSmall->AddElement(nist->FindOrBuildElement("H"), 1);
++  pmtSmall->SetMaterialPropertiesTable(MakePMTMPT(false));
++}
++
++G4MaterialPropertiesTable* G4DetectorConstruction::MakeWbLSMPT() const {
++  // Edit WbLS optical properties here: wavelength grid, refractive index,
++  // absorption length, Rayleigh length, and scintillation spectrum.
++  std::vector<G4double> wl = {250, 300, 350, 400, 450, 500, 550, 600};// nm
++  for (auto& x : wl) x *= nm;
++  auto e = EnergiesFromWavelengths(wl);
++  std::vector<G4double> rindex = ReverseCopy({1.36, 1.35, 1.345, 1.34, 1.337, 1.335, 1.334, 1.333});
++  std::vector<G4double> abs = ReverseCopy({0.05, 0.3, 2.0, 8.0, 12.0, 15.0, 15.0, 15.0});
++  for (auto& x : abs) x *= m * fConfig.wblsAbsLengthScale;
++  std::vector<G4double> rayleigh(e.size(), 30.0 * m);
++  std::vector<G4double> scint = ReverseCopy({0.05, 0.15, 0.55, 1.00, 0.80, 0.35, 0.10, 0.02});
++
++  auto* mpt = new G4MaterialPropertiesTable();
++  mpt->AddProperty("RINDEX", e, rindex);
++  mpt->AddProperty("ABSLENGTH", e, abs);
++  mpt->AddProperty("RAYLEIGH", e, rayleigh);
++  mpt->AddProperty("SCINTILLATIONCOMPONENT1", e, scint);
++  mpt->AddConstProperty("SCINTILLATIONYIELD", fConfig.wblsLightYield);
++  mpt->AddConstProperty("RESOLUTIONSCALE", 1.0);
++  mpt->AddConstProperty("SCINTILLATIONTIMECONSTANT1", fConfig.wblsDecayTime);
++  mpt->AddConstProperty("SCINTILLATIONYIELD1", 1.0);
++  return mpt;
++}
++
++G4MaterialPropertiesTable* G4DetectorConstruction::MakeQuartzMPT() const {
++  // Quartz/borosilicate-like transmission with a UV cutoff near 270 nm.
++  std::vector<G4double> wl = {240, 260, 270, 300, 350, 450, 600, 700};
++  for (auto& x : wl) x *= nm;
++  auto e = EnergiesFromWavelengths(wl);
++  std::vector<G4double> rindex = ReverseCopy({1.58, 1.55, 1.50, 1.48, 1.47, 1.465, 1.46, 1.458});
++  std::vector<G4double> abs = ReverseCopy({0.01, 0.02, 0.10, 5.0, 10.0, 10.0, 10.0, 10.0});
++  for (auto& x : abs) x *= m;
++  auto* mpt = new G4MaterialPropertiesTable();
++  mpt->AddProperty("RINDEX", e, rindex);
++  mpt->AddProperty("ABSLENGTH", e, abs);
++  return mpt;
++}
++
++G4MaterialPropertiesTable* G4DetectorConstruction::MakePMTMPT(G4bool large) const {
++  // Edit PMT QE curves here.  EFFICIENCY is read by SteppingAction for an
++  // explicit Bernoulli detection so hit accounting is transparent.
++  std::vector<G4double> wl = {250, 300, 350, 400, 450, 500, 550, 600, 650};
++  for (auto& x : wl) x *= nm;
++  auto e = EnergiesFromWavelengths(wl);
++  std::vector<G4double> qe = large
++      ? ReverseCopy({0.02, 0.10, 0.22, 0.28, 0.25, 0.18, 0.08, 0.02, 0.00})
++      : ReverseCopy({0.01, 0.08, 0.18, 0.24, 0.22, 0.15, 0.06, 0.01, 0.00});
++  const auto scale = large ? fConfig.largePMTQEScale : fConfig.smallPMTQEScale;
++  for (auto& x : qe) x = std::clamp(x * scale, 0.0, 1.0);
++  std::vector<G4double> rindex(e.size(), 1.0);
++  auto* mpt = new G4MaterialPropertiesTable();
++  mpt->AddProperty("RINDEX", e, rindex);
++  mpt->AddProperty("EFFICIENCY", e, qe);
++  return mpt;
++}
++
++G4MaterialPropertiesTable* G4DetectorConstruction::MakeSpectralonMPT() const {
++  // Edit Spectralon reflectivity vs wavelength here.  This simple constant is a
++  // high-reflectivity Lambertian approximation.
++  std::vector<G4double> wl = {250, 300, 350, 400, 450, 500, 550, 600, 700};
++  for (auto& x : wl) x *= nm;
++  auto e = EnergiesFromWavelengths(wl);
++  std::vector<G4double> reflectivity(e.size(), std::clamp(fConfig.spectralonReflectivity, 0.0, 1.0));
++  auto* mpt = new G4MaterialPropertiesTable();
++  mpt->AddProperty("REFLECTIVITY", e, reflectivity);
++  return mpt;
++}
++
++G4VPhysicalVolume* G4DetectorConstruction::DefineVolumes() {
++  const auto R = fConfig.sphereInnerRadius;
++  const auto worldHalf = R + fConfig.cuvetteHeight + fConfig.sourceDistanceAboveSample + 20.0 * cm;
++
++  auto* air = G4Material::GetMaterial("G4_AIR");
++  auto* spectralon = G4Material::GetMaterial("G4_TEFLON");
++  auto* quartz = G4Material::GetMaterial("G4_SILICON_DIOXIDE");
++  auto* wbls = G4Material::GetMaterial("WbLS");
++  auto* pmtLargeMat = G4Material::GetMaterial("LargePhotocathodeVacuum");
++  auto* pmtSmallMat = G4Material::GetMaterial("SmallPhotocathodeVacuum");
++
++  auto* worldS = new G4Box("World", worldHalf, worldHalf, worldHalf);
++  auto* worldLV = new G4LogicalVolume(worldS, air, "World");
++  auto* worldPV = new G4PVPlacement(nullptr, {}, worldLV, "World", nullptr, false, 0, fCheckOverlaps);
++
++  auto* shellBase = new G4Sphere("SpectralonShellBase", R, R + fConfig.sphereWallThickness,
++                                  0, CLHEP::twopi, 0, CLHEP::pi);
++  auto* sampleCut = new G4Tubs("SamplePortCut", 0, 0.5 * fConfig.samplePortDiameter,
++                               2.0 * fConfig.sphereWallThickness, 0, CLHEP::twopi);
++  auto* shellAfterSample = new G4SubtractionSolid("SpectralonShellMinusSamplePort", shellBase,
++                                                  sampleCut, nullptr, {0, 0, R});
++  auto* pmtCut = new G4Tubs("PMTPortCut", 0, 0.5 * fConfig.largePMTPortDiameter,
++                            2.0 * fConfig.sphereWallThickness, 0, CLHEP::twopi);
++  auto* pmtCutRot = new G4RotationMatrix();
++  pmtCutRot->rotateY(90.0 * deg);
++  auto* shellAfterLarge = new G4SubtractionSolid("SpectralonShellMinusLargePMT", shellAfterSample,
++                                                 pmtCut, pmtCutRot, {R, 0, 0});
++  auto* smallCut = new G4Tubs("SmallPMTPortCut", 0, 0.5 * fConfig.smallPMTPortDiameter,
++                              2.0 * fConfig.sphereWallThickness, 0, CLHEP::twopi);
++  auto* smallCutRot = new G4RotationMatrix();
++  smallCutRot->rotateY(90.0 * deg);
++  auto* shellS = new G4SubtractionSolid("SpectralonShell", shellAfterLarge, smallCut,
++                                        smallCutRot, {-R, 0, 0});
++  auto* shellLV = new G4LogicalVolume(shellS, spectralon, "SpectralonShell");
++  new G4PVPlacement(nullptr, {}, shellLV, "SpectralonShell", worldLV, false, 0, fCheckOverlaps);
++
++  auto* spectralonSurface = new G4OpticalSurface("SpectralonLambertianSurface");
++  spectralonSurface->SetType(dielectric_dielectric);
++  spectralonSurface->SetModel(unified);
++  spectralonSurface->SetFinish(groundfrontpainted);
++  spectralonSurface->SetSigmaAlpha(0.2);
++  spectralonSurface->SetMaterialPropertiesTable(MakeSpectralonMPT());
++  new G4LogicalSkinSurface("SpectralonSkin", shellLV, spectralonSurface);
++
++  const auto cuvetteZ = R - fConfig.cuvetteInsertion + 0.5 * fConfig.cuvetteHeight;
++  auto* cuvetteS = new G4Tubs("QuartzCuvette", 0, fConfig.cuvetteOuterRadius,
++                              0.5 * fConfig.cuvetteHeight, 0, CLHEP::twopi);
++  auto* cuvetteLV = new G4LogicalVolume(cuvetteS, quartz, "QuartzCuvette");
++  new G4PVPlacement(nullptr, {0, 0, cuvetteZ}, cuvetteLV, "QuartzCuvette", worldLV, false, 0,
++                    fCheckOverlaps);
++
++  const auto innerR = std::max(0.1 * mm, fConfig.cuvetteOuterRadius - fConfig.cuvetteWallThickness);
++  const auto innerH = std::max(0.1 * mm, fConfig.cuvetteHeight - 2.0 * fConfig.cuvetteWallThickness);
++  auto* wblsS = new G4Tubs("WbLS", 0, innerR, 0.5 * innerH, 0, CLHEP::twopi);
++  fWbLSLogical = new G4LogicalVolume(wblsS, wbls, "WbLS");
++  new G4PVPlacement(nullptr, {}, fWbLSLogical, "WbLS", cuvetteLV, false, 0, fCheckOverlaps);
++
++  auto* sourceS = new G4Tubs("SourceDisk", 0, fConfig.sourceRadius, 0.5 * fConfig.sourceThickness,
++                             0, CLHEP::twopi);
++  auto* sourceLV = new G4LogicalVolume(sourceS, air, "SourceDisk");
++  const auto sourceZ = R - fConfig.cuvetteInsertion + fConfig.cuvetteHeight
++                       + fConfig.sourceDistanceAboveSample;
++  new G4PVPlacement(nullptr, {0, 0, sourceZ}, sourceLV, "SourceDisk", worldLV, false, 0,
++                    fCheckOverlaps);
++
++  const auto pmtThickness = 0.1 * mm;
++  auto* largeS = new G4Tubs("largePMT", 0, 0.5 * fConfig.largePMTPortDiameter,
++                            0.5 * pmtThickness, 0, CLHEP::twopi);
++  fLargePMTLogical = new G4LogicalVolume(largeS, pmtLargeMat, "largePMT");
++  auto* rotY = new G4RotationMatrix();
++  rotY->rotateY(90.0 * deg);
++  new G4PVPlacement(rotY, {R - 0.5 * pmtThickness, 0, 0}, fLargePMTLogical, "largePMT",
++                    worldLV, false, 0, fCheckOverlaps);
++
++  auto* smallS = new G4Tubs("smallPMT", 0, 0.5 * fConfig.smallPMTPortDiameter,
++                            0.5 * pmtThickness, 0, CLHEP::twopi);
++  fSmallPMTLogical = new G4LogicalVolume(smallS, pmtSmallMat, "smallPMT");
++  auto* rotYSmall = new G4RotationMatrix();
++  rotYSmall->rotateY(90.0 * deg);
++  new G4PVPlacement(rotYSmall, {-R + 0.5 * pmtThickness, 0, 0}, fSmallPMTLogical, "smallPMT",
++                    worldLV, false, 0, fCheckOverlaps);
++
++  shellLV->SetVisAttributes(new G4VisAttributes(G4Colour(0.9, 0.9, 0.9, 0.25)));
++  cuvetteLV->SetVisAttributes(new G4VisAttributes(G4Colour(0.5, 0.8, 1.0, 0.25)));
++  fWbLSLogical->SetVisAttributes(new G4VisAttributes(G4Colour(0.1, 0.4, 1.0, 0.45)));
++  fLargePMTLogical->SetVisAttributes(new G4VisAttributes(G4Colour(0.0, 0.7, 0.0)));
++  fSmallPMTLogical->SetVisAttributes(new G4VisAttributes(G4Colour(0.0, 0.5, 0.0)));
++  sourceLV->SetVisAttributes(new G4VisAttributes(G4Colour(1.0, 0.0, 0.0)));
++
++  return worldPV;
++}
+diff --git a/src/src/G4EventAction.cc b/src/src/G4EventAction.cc
+index 17f2b1762737e980698b6833ed4b13754b63bacb..ea5ff98d408309661a0e3b56cea135e173bc7e53 100644
+--- a/src/src/G4EventAction.cc
++++ b/src/src/G4EventAction.cc
+@@ -1,51 +1,83 @@
+-/// \file G4EventAction.cc
+-/// \brief Implementation of the G4EventAction class
+-
+ #include "G4EventAction.hh"
+-#include "G4RunAction.hh"
+-#include "G4Constantes.hh"
+ 
+-#include "G4RunManager.hh"
++#include "G4AnalysisManager.hh"
++#include "G4DetectorConstruction.hh"
+ #include "G4Event.hh"
+-#include "G4UnitsTable.hh"
+-
+-//================================================================================
++#include "G4SystemOfUnits.hh"
+ 
+-G4EventAction::G4EventAction() {
+-    
++G4EventAction::G4EventAction(const G4DetectorConstruction* detector) : fDetector(detector) {}
+ 
++void G4EventAction::BeginOfEventAction(const G4Event* event) {
++  fEventID = event->GetEventID();
++  fSourceType = "unknown";
++  fNPrimaryGammas = 0;
++  fPrimaryEnergySum = 0.0;
++  fEdepWbLS = 0.0;
++  fNOpticalProduced = fNScintProduced = fNCerenkovProduced = 0;
++  fNDetLarge = fNDetSmall = 0;
++  fNDetLargeScint = fNDetLargeCerenkov = 0;
++  fNDetSmallScint = fNDetSmallCerenkov = 0;
+ }
+ 
+-//================================================================================
+-
+-G4EventAction::~G4EventAction() {}
++void G4EventAction::RecordPrimary(const G4String& isotope, G4double energy) {
++  fSourceType = isotope;
++  ++fNPrimaryGammas;
++  fPrimaryEnergySum += energy;
++}
+ 
+-//================================================================================
++void G4EventAction::AddProducedPhoton(const G4String& process) {
++  ++fNOpticalProduced;
++  if (process == "Scintillation") ++fNScintProduced;
++  if (process == "Cerenkov") ++fNCerenkovProduced;
++}
+ 
+-void G4EventAction::BeginOfEventAction(const G4Event* /*event*/) {
+-    
+-    nOfReflections = 0;
+-    nOfDetections = 0;
++void G4EventAction::RecordDetection(G4int pmtID, const G4String& process, G4double wavelength,
++                                    G4double time, G4int parentID,
++                                    const G4String& creatorProcess,
++                                    const G4ThreeVector& origin, const G4ThreeVector& hit) {
++  if (pmtID == 0) {
++    ++fNDetLarge;
++    if (process == "Scintillation") ++fNDetLargeScint;
++    if (process == "Cerenkov") ++fNDetLargeCerenkov;
++  } else {
++    ++fNDetSmall;
++    if (process == "Scintillation") ++fNDetSmallScint;
++    if (process == "Cerenkov") ++fNDetSmallCerenkov;
++  }
+ 
++  if (!fDetector->GetConfig().savePhotonTree) return;
++  auto* analysis = G4AnalysisManager::Instance();
++  analysis->FillNtupleIColumn(1, 0, fEventID);
++  analysis->FillNtupleIColumn(1, 1, pmtID);
++  analysis->FillNtupleDColumn(1, 2, wavelength / nm);
++  analysis->FillNtupleDColumn(1, 3, time / ns);
++  analysis->FillNtupleSColumn(1, 4, process);
++  analysis->FillNtupleIColumn(1, 5, parentID);
++  analysis->FillNtupleSColumn(1, 6, creatorProcess);
++  analysis->FillNtupleDColumn(1, 7, origin.x() / mm);
++  analysis->FillNtupleDColumn(1, 8, origin.y() / mm);
++  analysis->FillNtupleDColumn(1, 9, origin.z() / mm);
++  analysis->FillNtupleDColumn(1, 10, hit.x() / mm);
++  analysis->FillNtupleDColumn(1, 11, hit.y() / mm);
++  analysis->FillNtupleDColumn(1, 12, hit.z() / mm);
++  analysis->AddNtupleRow(1);
+ }
+ 
+-//================================================================================
+-
+-void G4EventAction::EndOfEventAction(const G4Event* event) {
+-    
+-    // Print number of reflections
+-    if (IMPRIMIR_EVENTOS == true) {
+-        G4cout << "Number of reflections [Event] = " << nOfReflections << G4endl;
+-        G4cout << "Number of detections [Event] = " << nOfDetections << G4endl;
+-    }
+-    
+-    // Print per event (modulo n)
+-    //
+-    G4int eventID = event->GetEventID();
+-    G4int printModulo = G4RunManager::GetRunManager()->GetPrintProgress();
+-    if ( ( printModulo > 0 ) && ( eventID % printModulo == 0 ) ) {
+-        G4cout << "---> End of event: " << eventID << G4endl;
+-    }
++void G4EventAction::EndOfEventAction(const G4Event*) {
++  auto* analysis = G4AnalysisManager::Instance();
++  analysis->FillNtupleIColumn(0, 0, fEventID);
++  analysis->FillNtupleSColumn(0, 1, fSourceType);
++  analysis->FillNtupleIColumn(0, 2, fNPrimaryGammas);
++  analysis->FillNtupleDColumn(0, 3, fPrimaryEnergySum / keV);
++  analysis->FillNtupleDColumn(0, 4, fEdepWbLS / keV);
++  analysis->FillNtupleIColumn(0, 5, fNOpticalProduced);
++  analysis->FillNtupleIColumn(0, 6, fNCerenkovProduced);
++  analysis->FillNtupleIColumn(0, 7, fNScintProduced);
++  analysis->FillNtupleIColumn(0, 8, fNDetLarge);
++  analysis->FillNtupleIColumn(0, 9, fNDetSmall);
++  analysis->FillNtupleIColumn(0, 10, fNDetLargeCerenkov);
++  analysis->FillNtupleIColumn(0, 11, fNDetSmallCerenkov);
++  analysis->FillNtupleIColumn(0, 12, fNDetLargeScint);
++  analysis->FillNtupleIColumn(0, 13, fNDetSmallScint);
++  analysis->AddNtupleRow(0);
+ }
+-
+-//================================================================================
+diff --git a/src/src/G4PrimaryGeneratorAction.cc b/src/src/G4PrimaryGeneratorAction.cc
+index c2243f0e02fad45534ac910ac6d49983d89ec907..145316758ec706a90dc8bbeb65194ea9775d66b8 100644
+--- a/src/src/G4PrimaryGeneratorAction.cc
++++ b/src/src/G4PrimaryGeneratorAction.cc
+@@ -1,104 +1,60 @@
+ #include "G4PrimaryGeneratorAction.hh"
+-#include "G4Constantes.hh"
+-
+-#include "Randomize.hh"
+ 
+ #include "G4Event.hh"
++#include "G4EventAction.hh"
++#include "G4GenericMessenger.hh"
+ #include "G4ParticleGun.hh"
+ #include "G4ParticleTable.hh"
+-#include "G4ParticleDefinition.hh"
+-
++#include "G4RandomDirection.hh"
+ #include "G4SystemOfUnits.hh"
++#include "Randomize.hh"
+ 
+-// ============================================================================
++#include <cmath>
+ 
+-G4PrimaryGeneratorAction::G4PrimaryGeneratorAction()
+- : G4VUserPrimaryGeneratorAction(), 
+-   particleGun(0)
+-{   
+-    // default
+-    flag_alpha=true;
+-    G4int n_particle = 1;
+-    particleGun = new G4ParticleGun(n_particle);
+-    // G4ParticleTable* particleTable = G4ParticleTable::GetParticleTable();
+-    // G4ParticleDefinition* particle = particleTable->FindParticle("alpha");   
++G4PrimaryGeneratorAction::G4PrimaryGeneratorAction(const DetectorConfig& config,
++                                                   G4EventAction* eventAction)
++    : fConfig(config), fEventAction(eventAction), fGun(new G4ParticleGun(1)) {
++  fGun->SetParticleDefinition(G4ParticleTable::GetParticleTable()->FindParticle("gamma"));
++  DefineCommands();
+ }
+ 
+-// ============================================================================
+-
+ G4PrimaryGeneratorAction::~G4PrimaryGeneratorAction() {
+-    
+-    delete particleGun;
+-    
++  delete fMessenger;
++  delete fGun;
+ }
+ 
+-// ============================================================================
+-
+-void G4PrimaryGeneratorAction::GeneratePrimaries(G4Event* anEvent) { 
+-    
+-    static const double pi  = 3.14159265358979323846;
+-
+-    particleGun->SetParticleEnergy(5*GeV);
+-    
+-    particleGun->SetParticleMomentumDirection(G4ThreeVector(0,0,-1));
+-    particleGun->SetParticlePosition(G4ThreeVector(7.5*cm,7.5*cm,0.8*m));
+-
+-    G4ParticleDefinition* particle=  G4ParticleTable::GetParticleTable()->FindParticle("mu-");
+-
+-    particleGun->SetParticleDefinition(particle);
+-    // particleGun->SetParticleTime(0.0*ns);
+-    particleGun->GeneratePrimaryVertex(anEvent);
+-
+-// // teste com múons
+-
+-//     particleGun->SetParticleEnergy(40.0*GeV);
+-
+-
+-//     particleGun->SetParticleMomentumDirection(G4ThreeVector(-1,0,0));
+-//     particleGun->SetParticlePosition(G4ThreeVector(100*mm,0*mm,0*mm));
+-
+-//     G4ParticleDefinition* particle=  G4ParticleTable::GetParticleTable()->FindParticle("mu+");
+-
+-//     particleGun->SetParticleDefinition(particle);
+-//     // particleGun->SetParticleTime(0.0*ns);
+-//     particleGun->GeneratePrimaryVertex(anEvent);
+-
+-    flag_alpha = true;   
+-    
++void G4PrimaryGeneratorAction::DefineCommands() {
++  fMessenger = new G4GenericMessenger(this, "/wbls/source/", "WbLS disk gamma source controls");
++  fMessenger->DeclareProperty("isotope", fIsotope,
++                              "Simplified isotope: Cs137, Na22, or Co60.");
+ }
+ 
+-
+-// ============================================================================
+-
+-void G4PrimaryGeneratorAction::SetOptPhotonPolar() {
+-    
+-    G4double angle = G4UniformRand() * 360.0*deg;
+-    SetOptPhotonPolar(angle);
+-    
++void G4PrimaryGeneratorAction::EmitGamma(G4Event* event, G4double energy) {
++  const auto r = fConfig.sourceRadius * std::sqrt(G4UniformRand());
++  const auto phi = CLHEP::twopi * G4UniformRand();
++  const auto zJitter = (G4UniformRand() - 0.5) * fConfig.sourceThickness;
++  const auto sourceZ = fConfig.sphereInnerRadius - fConfig.cuvetteInsertion + fConfig.cuvetteHeight
++                       + fConfig.sourceDistanceAboveSample + zJitter;
++
++  fGun->SetParticleEnergy(energy);
++  fGun->SetParticlePosition({r * std::cos(phi), r * std::sin(phi), sourceZ});
++  fGun->SetParticleMomentumDirection(G4RandomDirection());
++  fGun->GeneratePrimaryVertex(event);
++  fEventAction->RecordPrimary(fIsotope, energy);
+ }
+ 
+-// ============================================================================
+-
+-void G4PrimaryGeneratorAction::SetOptPhotonPolar(G4double angle) {
+-    
+-    if (particleGun->GetParticleDefinition()->GetParticleName() != "opticalphoton") {
+-        G4cout << "--> warning from PrimaryGeneratorAction::SetOptPhotonPolar() :"
+-                "the particleGun is not an opticalphoton" << G4endl;
+-        return;
+-    }
+-
+-    G4ThreeVector normal (1., 0., 0.);
+-    G4ThreeVector kphoton = particleGun->GetParticleMomentumDirection();
+-    G4ThreeVector product = normal.cross(kphoton);
+-    G4double modul2       = product*product;
+-
+-    G4ThreeVector e_perpend (0., 0., 1.);
+-    if (modul2 > 0.) e_perpend = (1./std::sqrt(modul2))*product;
+-    G4ThreeVector e_paralle    = e_perpend.cross(kphoton);
+-
+-    G4ThreeVector polar = std::cos(angle)*e_paralle + std::sin(angle)*e_perpend;
+-    particleGun->SetParticlePolarization(polar);
+-    
++void G4PrimaryGeneratorAction::GeneratePrimaries(G4Event* event) {
++  if (fIsotope == "Na22") {
++    // Simplified Na-22: two back-to-back annihilation gammas are approximated as
++    // independent isotropic photons, plus the 1274.5 keV de-excitation gamma.
++    EmitGamma(event, 511.0 * keV);
++    EmitGamma(event, 511.0 * keV);
++    EmitGamma(event, 1274.5 * keV);
++  } else if (fIsotope == "Co60") {
++    EmitGamma(event, 1173.2 * keV);
++    EmitGamma(event, 1332.5 * keV);
++  } else {
++    fIsotope = "Cs137";
++    EmitGamma(event, 661.7 * keV);
++  }
+ }
+-
+-// ============================================================================
+diff --git a/src/src/G4RunAction.cc b/src/src/G4RunAction.cc
+index 14078fd4a060d88ea7e0debfee6b244a7d64fcb3..85ba1e5781c88d2b51fbe5298077061335ca5e4a 100644
+--- a/src/src/G4RunAction.cc
++++ b/src/src/G4RunAction.cc
+@@ -1,132 +1,59 @@
+-#include "G4Timer.hh"
+-
+ #include "G4RunAction.hh"
+-#include "G4Constantes.hh"
+ 
++#include "G4AnalysisManager.hh"
++#include "G4GenericMessenger.hh"
+ #include "G4Run.hh"
+-#include "G4RunManager.hh"
+-#include "G4EventManager.hh"
+-#include "g4root.hh"
+-
+-
+-#include <fstream>
+-
+-// #include "G4NeutronHPManager.hh"
+-
+-using namespace std;
+-
+-//================================================================================
+-
+-G4RunAction::G4RunAction(const DetectorConfig& config) : G4UserRunAction(), fConfig(config) {
+-    
+-    timer = new G4Timer;
+-    nOfReflections_Total = 0;
+-    nOfDetections_Total = 0;
+-    TOF_Detections_Total = 0;
+-}
+ 
+-//================================================================================
++G4RunAction::G4RunAction() { DefineCommands(); }
++G4RunAction::~G4RunAction() { delete fMessenger; }
+ 
+-G4RunAction::~G4RunAction() {
+-    
+-    delete timer;
+-  
++void G4RunAction::DefineCommands() {
++  fMessenger = new G4GenericMessenger(this, "/wbls/output/", "WbLS output controls");
++  fMessenger->DeclareProperty("file", fOutputFile, "ROOT output filename.");
+ }
+ 
+-//================================================================================
+-
+-void G4RunAction::BeginOfRunAction(const G4Run* aRun) {
+-    
+-    // G4NeutronHPManager::GetInstance()->SetVerboseLevel(0);
+-
+-
+-    G4cout << "### Run " << aRun->GetRunID() << " start." << G4endl;
+-
+-    G4AnalysisManager* analysisManager = G4AnalysisManager::Instance();
+-    
+-    G4cout << "Using " << analysisManager->GetType() << " analysis manager." << G4endl;
+-    timer->Start();
+-
+-    analysisManager->OpenFile("OutPut");
+-    analysisManager->SetVerboseLevel(0);
+-
+-
+-    // Indica o id do primeiro histograma criado -- default = 0
+-    analysisManager->SetFirstHistoId(1);
+-    // Cria histogramas    -- (nome, titulo, nbins, xmin, xmax)
+-    analysisManager->CreateH1("0","Time of arrival",5000,0.,10);
+-
+-
+-    // Indica o id da primeira ntuple criada -- default = 0
+-    analysisManager->SetFirstNtupleId(1);
+-    //Declara ntuples
+-    analysisManager->CreateNtuple("ntuple", "data");
+-    analysisManager->CreateNtupleIColumn("evt");
+-    analysisManager->CreateNtupleDColumn("x");
+-    analysisManager->CreateNtupleDColumn("y");
+-    analysisManager->CreateNtupleDColumn("z");
+-    analysisManager->CreateNtupleDColumn("t");
+-    analysisManager->CreateNtupleDColumn("energy");
+-    analysisManager->CreateNtupleDColumn("theta");
+-    analysisManager->CreateNtupleDColumn("dx");
+-    analysisManager->CreateNtupleDColumn("dy");
+-    analysisManager->CreateNtupleDColumn("dz");
+-    analysisManager->CreateNtupleIColumn("module");
+-
+-    analysisManager->FinishNtuple();
+-
+-    // Second ntuple (detector config)
+-    analysisManager->CreateNtuple("config", "detector config");
+-    analysisManager->CreateNtupleIColumn("sizeX");
+-    analysisManager->CreateNtupleIColumn("sizeY");
+-    analysisManager->CreateNtupleIColumn("sizeZ");
+-    analysisManager->CreateNtupleDColumn("pixelSizeY");
+-    analysisManager->CreateNtupleDColumn("pixelSizeZ");
+-    analysisManager->FinishNtuple();
+-
+-    // Fill the config ntuple once per run
+-    analysisManager->FillNtupleIColumn(2, 0, fConfig.sizeX);
+-    analysisManager->FillNtupleIColumn(2, 1, fConfig.sizeY);
+-    analysisManager->FillNtupleIColumn(2, 2, fConfig.sizeZ);
+-    analysisManager->FillNtupleDColumn(2, 3, fConfig.pixelSizeY);
+-    analysisManager->FillNtupleDColumn(2, 4, fConfig.pixelSizeZ);
+-    analysisManager->AddNtupleRow(2);
+-
++void G4RunAction::BeginOfRunAction(const G4Run*) {
++  auto* analysis = G4AnalysisManager::Instance();
++  analysis->SetDefaultFileType("root");
++  analysis->SetFileName(fOutputFile);
++  analysis->OpenFile();
++
++  analysis->CreateNtuple("events", "event-level WbLS light-yield summary");
++  analysis->CreateNtupleIColumn("eventID");
++  analysis->CreateNtupleSColumn("sourceType");
++  analysis->CreateNtupleIColumn("nPrimaryGammas");
++  analysis->CreateNtupleDColumn("primaryEnergySum_keV");
++  analysis->CreateNtupleDColumn("edepWbLS_keV");
++  analysis->CreateNtupleIColumn("nOpticalProducedWbLS");
++  analysis->CreateNtupleIColumn("nCerenkovProducedWbLS");
++  analysis->CreateNtupleIColumn("nScintProducedWbLS");
++  analysis->CreateNtupleIColumn("nDetectedLargePMT");
++  analysis->CreateNtupleIColumn("nDetectedSmallPMT");
++  analysis->CreateNtupleIColumn("nDetectedLargePMT_Cerenkov");
++  analysis->CreateNtupleIColumn("nDetectedSmallPMT_Cerenkov");
++  analysis->CreateNtupleIColumn("nDetectedLargePMT_Scintillation");
++  analysis->CreateNtupleIColumn("nDetectedSmallPMT_Scintillation");
++  analysis->FinishNtuple();
++
++  analysis->CreateNtuple("photons", "detected optical photons");
++  analysis->CreateNtupleIColumn("eventID");
++  analysis->CreateNtupleIColumn("pmtID"); // 0=largePMT, 1=smallPMT
++  analysis->CreateNtupleDColumn("wavelength_nm");
++  analysis->CreateNtupleDColumn("detectionTime_ns");
++  analysis->CreateNtupleSColumn("creationProcess");
++  analysis->CreateNtupleIColumn("parentTrackID");
++  analysis->CreateNtupleSColumn("creatorProcessName");
++  analysis->CreateNtupleDColumn("originX_mm");
++  analysis->CreateNtupleDColumn("originY_mm");
++  analysis->CreateNtupleDColumn("originZ_mm");
++  analysis->CreateNtupleDColumn("hitX_mm");
++  analysis->CreateNtupleDColumn("hitY_mm");
++  analysis->CreateNtupleDColumn("hitZ_mm");
++  analysis->FinishNtuple();
+ }
+ 
+-//================================================================================
+-
+-void G4RunAction::EndOfRunAction(const G4Run* aRun) {
+-    G4cout << "End of run." << G4endl;
+-    timer->Stop();
+-
+-    G4AnalysisManager* analysisManager = G4AnalysisManager::Instance();
+-
+-
+-
+-//     // Get the actual TFile from G4AnalysisManager (if using ROOT)
+-//     TFile* file = (TFile*) analysisManager->GetFile();
+-
+-
+-// // struct DetectorConfig {
+-// //     int sizeX, sizeY, sizeZ;
+-// //     int pixelSizeY, pixelSizeZ;
+-// // };
+-//     if (file) {
+-//         file->cd();
+-//         file->WriteObject(new TParameter<int>("sizeX", config.sizeX), "sizeX");
+-//         file->WriteObject(new TParameter<int>("sizeY", config.sizeY), "sizeY");
+-//         file->WriteObject(new TParameter<int>("sizeZ", config.sizeZ), "sizeZ");
+-//         file->WriteObject(new TParameter<int>("pixelSizeY", config.pixelSizeY), "pixelSizeY");
+-//         file->WriteObject(new TParameter<int>("pixelSizeZ", config.pixelSizeZ), "pixelSizeZ");
+-//     }
+-
+-
+-    analysisManager->Write();
+-    analysisManager->CloseFile();
+-
+-    delete G4AnalysisManager::Instance();
+-        
++void G4RunAction::EndOfRunAction(const G4Run*) {
++  auto* analysis = G4AnalysisManager::Instance();
++  analysis->Write();
++  analysis->CloseFile();
+ }
+-
+-//================================================================================
+diff --git a/src/src/G4SteppingAction.cc b/src/src/G4SteppingAction.cc
+index 1dddf28106283a0ecf8068b4de172c3abe235ebf..80260fbc335ed1d029c591a1d2c4852b7cb14e1d 100644
+--- a/src/src/G4SteppingAction.cc
++++ b/src/src/G4SteppingAction.cc
+@@ -1,183 +1,81 @@
+ #include "G4SteppingAction.hh"
+-#include "G4Constantes.hh"
+-#include "G4PrimaryGeneratorAction.hh"
+ 
+-#include "G4Step.hh"
+-#include "G4Track.hh"
++#include "G4DetectorConstruction.hh"
++#include "G4EventAction.hh"
++#include "G4LogicalVolume.hh"
++#include "G4MaterialPropertiesTable.hh"
+ #include "G4OpticalPhoton.hh"
+-
+-#include "G4Run.hh"
+-#include "G4Event.hh"
+-#include "G4RunManager.hh"
+-#include "G4EventManager.hh"
+-
++#include "G4ParticleDefinition.hh"
++#include "G4Step.hh"
+ #include "G4SystemOfUnits.hh"
+-
+-/* Alteracao 5 5 17 */
+-#include "G4ios.hh"
+-#include "G4GeometryTolerance.hh"
+-#include "G4OpBoundaryProcess.hh"
+-#include "G4PhysicalConstants.hh"
+-// */
+-
+-// Arquivo txt de out put 
+-#include <fstream>
+-using namespace std;
+-//ofstream OutPut_Step(TXT_FILE);
+-
+-// Conversao de radianos para graus
+-#define RAD_TO_DEG 180/pi
+-//================================================================================
+-
+-G4SteppingAction::G4SteppingAction( G4EventAction *eventAction, G4RunAction* runAction, G4PrimaryGeneratorAction* PrimaryGeneratorAction)
+-: G4UserSteppingAction (), fEventAction (eventAction), fRunAction (runAction), fPrimaryGeneratorAction (PrimaryGeneratorAction) {
+-
+-    fEventNumber = -1;
+-
++#include "G4Track.hh"
++#include "G4VProcess.hh"
++#include "PhotonTrackInfo.hh"
++#include "Randomize.hh"
++
++#include <algorithm>
++
++G4SteppingAction::G4SteppingAction(const G4DetectorConstruction* detector,
++                                   G4EventAction* eventAction)
++    : fDetector(detector), fEventAction(eventAction) {}
++
++G4double G4SteppingAction::QuantumEfficiency(const G4Step* step) const {
++  const auto* postLV = step->GetPostStepPoint()->GetTouchableHandle()->GetVolume()->GetLogicalVolume();
++  const auto* mpt = postLV->GetMaterial()->GetMaterialPropertiesTable();
++  if (!mpt) return 0.0;
++  auto* qe = mpt->GetProperty("EFFICIENCY");
++  if (!qe) return 0.0;
++  return std::clamp(qe->Value(step->GetTrack()->GetKineticEnergy()), 0.0, 1.0);
+ }
+ 
+-G4SteppingAction::~G4SteppingAction() { ; }
+-
+-//================================================================================
+-
+-void G4SteppingAction::UserSteppingAction (const G4Step* aStep) {
+-
+-    fEventNumber = G4RunManager::GetRunManager()->GetCurrentEvent()->GetEventID();
+-    
+-    //============================================================================
+-    G4AnalysisManager* analysisManager = G4AnalysisManager::Instance();
+-    
+-    // Step
+-    G4Track* track = aStep->GetTrack();
+-    G4String parti = track->GetDefinition()->GetParticleName();
+-    G4String materia = track->GetMaterial()->GetName();
+-
+-    G4double step_x = aStep->GetTrack()->GetPosition().x();
+-    G4double step_y = aStep->GetTrack()->GetPosition().y();
+-    G4double step_z = aStep->GetTrack()->GetPosition().z();
+-    
+-    const G4VProcess* creator = track->GetCreatorProcess();
+-
+-    const G4DynamicParticle* dynParticle = track -> GetDynamicParticle();
+-    // G4double kinEnergy = dynParticle -> GetKineticEnergy(); 
+-    G4double EDep = aStep->GetTotalEnergyDeposit();
+-
+-
+-    //PreStep Info
+-    G4StepPoint * aPrePoint = aStep->GetPreStepPoint();
+-    G4VPhysicalVolume * aPrePV = aPrePoint->GetPhysicalVolume();
+-    G4String PreVolName = "";
+-    if (aPrePV) PreVolName = aPrePV->GetName();
+-
+-
+-    G4TouchableHandle touchable = aPrePoint->GetTouchableHandle();
+-
+-    G4int PreCopyNo = touchable->GetCopyNumber();
+-
+-    // G4ThreeVector centerPos = touchable->GetHistory()->GetTopTransform().Inverse().TransformPoint(G4ThreeVector(0,0,0));
+-    G4ThreeVector centerPos  = touchable->GetHistory()->GetTransform(0).TransformPoint(aPrePoint->GetPosition());
+-
+-
+-    G4double    PixelCenterX     =   centerPos.getX();
+-    G4double    PixelCenterY     =   centerPos.getY();
+-    G4double    PixelCenterZ     =   centerPos.getZ();
+-
+-
+-    //PostStep Info
+-    G4StepPoint * aPostPoint = aStep->GetPostStepPoint();
+-    G4VPhysicalVolume * aPostPV = aPostPoint->GetPhysicalVolume();
+-    G4String PostVolName = "";
+-    if (aPostPV) PostVolName= aPostPV->GetName();
+-    G4int PostCopyNo = aPostPoint->GetTouchableHandle()->GetCopyNumber();
+-
+-
+-
+-
+-
+-
+-
+-
+-    G4int evtNb = G4EventManager::GetEventManager()->GetConstCurrentEvent()->GetEventID();
+-
+-
+-    G4ThreeVector   Normal          =   G4ThreeVector(0 * m, 0 * m, 1 * m);
+-    G4ThreeVector   direction       =   track->GetMomentumDirection();
+-
+-    G4double        CosAngle        =   direction.dot(Normal)/(direction.mag()*Normal.mag());
+-
+-
+-
+-
+-
+-
+-
+-    if (parti != "mu-" )
+-    {
+-        track->SetTrackStatus(fStopAndKill);
++void G4SteppingAction::UserSteppingAction(const G4Step* step) {
++  auto* track = step->GetTrack();
++  const auto* prePoint = step->GetPreStepPoint();
++  const auto* postPoint = step->GetPostStepPoint();
++  const auto* preVolume = prePoint->GetTouchableHandle()->GetVolume();
++  const auto* postVolume = postPoint->GetTouchableHandle()->GetVolume();
++
++  const bool inWbLS = preVolume &&
++      preVolume->GetLogicalVolume() == fDetector->GetWbLSLogical();
++  if (inWbLS && track->GetDefinition() != G4OpticalPhoton::OpticalPhotonDefinition()) {
++    fEventAction->AddWbLSEdep(step->GetTotalEnergyDeposit());
++  }
++
++  // Tag optical secondaries at birth so the production mechanism survives all
++  // reflections/scattering before detection.  The count is limited to photons
++  // produced while the parent step starts in WbLS.
++  if (inWbLS) {
++    for (auto* secondary : *step->GetSecondaryInCurrentStep()) {
++      if (secondary->GetDefinition() != G4OpticalPhoton::OpticalPhotonDefinition()) continue;
++      G4String process = "unknown";
++      if (secondary->GetCreatorProcess()) process = secondary->GetCreatorProcess()->GetProcessName();
++      secondary->SetUserInformation(new PhotonTrackInfo(process, secondary->GetPosition(),
++                                                        secondary->GetParentID()));
++      fEventAction->AddProducedPhoton(process);
+     }
+-    if (PreCopyNo != PostCopyNo && parti == "mu-" && PostVolName != "" && PreVolName != MUNDO_NOME)
+-    {
+-        analysisManager->FillNtupleIColumn(1,0,fEventNumber);
+-        analysisManager->FillNtupleDColumn(1,1,step_x/cm);
+-        analysisManager->FillNtupleDColumn(1,2,step_y/cm);
+-        analysisManager->FillNtupleDColumn(1,3,step_z/cm);
+-        analysisManager->FillNtupleDColumn(1,4,track->GetGlobalTime()/ns);
+-        analysisManager->FillNtupleDColumn(1,5,accumulatedEnergy/MeV);
+-        analysisManager->FillNtupleDColumn(1,6,acos(CosAngle)*180/3.1415);
+-        analysisManager->FillNtupleDColumn(1,7,PixelCenterX/cm);
+-        analysisManager->FillNtupleDColumn(1,8,PixelCenterY/cm);
+-        analysisManager->FillNtupleDColumn(1,9,PixelCenterZ/cm);
+-        if (PreVolName == "Prisms_M0")
+-        {
+-            analysisManager->FillNtupleIColumn(1,10,0);
+-        }
+-        else if (PreVolName == "Prisms_M1")
+-        {
+-            analysisManager->FillNtupleIColumn(1,10,1);
+-        }
+-        else if (PreVolName == "Prisms_M2")
+-        {
+-            analysisManager->FillNtupleIColumn(1,10,2);
+-        }
+-        else if (PreVolName == "Prisms_M3")
+-        {
+-            analysisManager->FillNtupleIColumn(1,10,3);
+-        }
+-        else
+-        {
+-            analysisManager->FillNtupleIColumn(1,10,666);
+-        }
+-        analysisManager->AddNtupleRow(1);
+-
+-        accumulatedEnergy = 0.0;
+-    }
+-    if (PreCopyNo == PostCopyNo && parti == "mu-" && PostVolName != "" && PreVolName != MUNDO_NOME && PostVolName != MUNDO_NOME)
+-    {
+-        accumulatedEnergy = accumulatedEnergy + EDep;
+-    }
+-
+-
+-
+-
+-    //============================================================================
+-
+-    // if (parti == "opticalphoton" && PreVolName == MUNDO_NOME && PostVolName == "pmt")//PreVolName == MUNDO_NOME && PostVolName == "v2")//&& track -> GetTrackID()!=1 && creator) 
+-    // {
+-
+-    //     analysisManager->FillNtupleIColumn(1,0,fEventNumber);
+-    //     analysisManager->FillNtupleDColumn(1,1,step_x/cm);
+-    //     analysisManager->FillNtupleDColumn(1,2,step_y/cm);
+-    //     analysisManager->FillNtupleDColumn(1,3,step_z/cm);
+-    //     analysisManager->FillNtupleDColumn(1,4,track->GetGlobalTime()/ns);
+-    //     analysisManager->FillNtupleDColumn(1,5,kinEnergy/eV);
+-    //     analysisManager->FillNtupleDColumn(1,6,acos(CosAngle)*180/3.1415);
+-    //     analysisManager->FillNtupleDColumn(1,7,direction_x);
+-    //     analysisManager->FillNtupleDColumn(1,8,direction_y);
+-    //     analysisManager->FillNtupleDColumn(1,9,direction_z);
+-    //     analysisManager->AddNtupleRow(1);
+-    //     track->SetTrackStatus(fStopAndKill);
+-    // }
+-       
++  }
++
++  if (track->GetDefinition() != G4OpticalPhoton::OpticalPhotonDefinition()) return;
++  if (!postVolume) return;
++  const auto* postLV = postVolume->GetLogicalVolume();
++  const bool hitLarge = postLV == fDetector->GetLargePMTLogical();
++  const bool hitSmall = postLV == fDetector->GetSmallPMTLogical();
++  if (!hitLarge && !hitSmall) return;
++
++  const auto qe = QuantumEfficiency(step);
++  if (G4UniformRand() < qe) {
++    const auto* info = dynamic_cast<const PhotonTrackInfo*>(track->GetUserInformation());
++    G4String taggedProcess = info ? info->Process() : "unknown";
++    G4ThreeVector origin = info ? info->Origin() : track->GetVertexPosition();
++    G4int parentID = info ? info->ParentID() : track->GetParentID();
++    G4String creator = "unknown";
++    if (track->GetCreatorProcess()) creator = track->GetCreatorProcess()->GetProcessName();
++    const auto wavelength = CLHEP::h_Planck * CLHEP::c_light / track->GetKineticEnergy();
++    fEventAction->RecordDetection(hitLarge ? 0 : 1, taggedProcess, wavelength,
++                                  track->GetGlobalTime(), parentID, creator, origin,
++                                  postPoint->GetPosition());
++  }
++
++  // A photon crossing into the photocathode either produced a PE or was lost.
++  track->SetTrackStatus(fStopAndKill);
+ }
+-
+-//================================================================================
