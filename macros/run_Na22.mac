@@ -1,0 +1,7 @@
+# Na-22 WbLS light-yield toy run. Each event samples one gamma from 511 or 1274.5 keV.
+/run/initialize
+/analysis/setFileName wbls_Na22
+/wbls/source/isotope Na22
+/wbls/source/radius 0.5 cm
+/wbls/source/z 14 cm
+/run/beamOn 1000

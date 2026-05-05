@@ -1,104 +1,55 @@
 #include "G4PrimaryGeneratorAction.hh"
-#include "G4Constantes.hh"
-
-#include "Randomize.hh"
 
 #include "G4Event.hh"
+#include "G4EventManager.hh"
+#include "G4Gamma.hh"
+#include "G4GenericMessenger.hh"
 #include "G4ParticleGun.hh"
-#include "G4ParticleTable.hh"
-#include "G4ParticleDefinition.hh"
-
+#include "G4RandomDirection.hh"
+#include "G4RandomTools.hh"
 #include "G4SystemOfUnits.hh"
 
-// ============================================================================
+#include "G4EventAction.hh"
 
-G4PrimaryGeneratorAction::G4PrimaryGeneratorAction()
- : G4VUserPrimaryGeneratorAction(), 
-   particleGun(0)
-{   
-    // default
-    flag_alpha=true;
-    G4int n_particle = 1;
-    particleGun = new G4ParticleGun(n_particle);
-    // G4ParticleTable* particleTable = G4ParticleTable::GetParticleTable();
-    // G4ParticleDefinition* particle = particleTable->FindParticle("alpha");   
+#include <cmath>
+
+G4PrimaryGeneratorAction::G4PrimaryGeneratorAction() : fGun(new G4ParticleGun(1)) {
+  fGun->SetParticleDefinition(G4Gamma::Definition());
+  DefineCommands();
 }
-
-// ============================================================================
 
 G4PrimaryGeneratorAction::~G4PrimaryGeneratorAction() {
-    
-    delete particleGun;
-    
+  delete fMessenger;
+  delete fGun;
 }
 
-// ============================================================================
-
-void G4PrimaryGeneratorAction::GeneratePrimaries(G4Event* anEvent) { 
-    
-    static const double pi  = 3.14159265358979323846;
-
-    particleGun->SetParticleEnergy(5*GeV);
-    
-    particleGun->SetParticleMomentumDirection(G4ThreeVector(0,0,-1));
-    particleGun->SetParticlePosition(G4ThreeVector(7.5*cm,7.5*cm,0.8*m));
-
-    G4ParticleDefinition* particle=  G4ParticleTable::GetParticleTable()->FindParticle("mu-");
-
-    particleGun->SetParticleDefinition(particle);
-    // particleGun->SetParticleTime(0.0*ns);
-    particleGun->GeneratePrimaryVertex(anEvent);
-
-// // teste com múons
-
-//     particleGun->SetParticleEnergy(40.0*GeV);
-
-
-//     particleGun->SetParticleMomentumDirection(G4ThreeVector(-1,0,0));
-//     particleGun->SetParticlePosition(G4ThreeVector(100*mm,0*mm,0*mm));
-
-//     G4ParticleDefinition* particle=  G4ParticleTable::GetParticleTable()->FindParticle("mu+");
-
-//     particleGun->SetParticleDefinition(particle);
-//     // particleGun->SetParticleTime(0.0*ns);
-//     particleGun->GeneratePrimaryVertex(anEvent);
-
-    flag_alpha = true;   
-    
+void G4PrimaryGeneratorAction::DefineCommands() {
+  fMessenger = new G4GenericMessenger(this, "/wbls/source/", "WbLS gamma source controls");
+  fMessenger->DeclareProperty("isotope", fIsotope, "Cs137, Co60, or Na22");
+  fMessenger->DeclarePropertyWithUnit("radius", "cm", fSourceRadius, "Disk source radius");
+  fMessenger->DeclarePropertyWithUnit("z", "cm", fSourceZ, "Source z position above top port");
 }
 
-
-// ============================================================================
-
-void G4PrimaryGeneratorAction::SetOptPhotonPolar() {
-    
-    G4double angle = G4UniformRand() * 360.0*deg;
-    SetOptPhotonPolar(angle);
-    
+G4double G4PrimaryGeneratorAction::SampleGammaEnergy() const {
+  if (fIsotope == "Co60" || fIsotope == "Co-60") {
+    return (G4UniformRand() < 0.5) ? 1173.2 * keV : 1332.5 * keV;
+  }
+  if (fIsotope == "Na22" || fIsotope == "Na-22") {
+    return (G4UniformRand() < 2.0 / 3.0) ? 511.0 * keV : 1274.5 * keV;
+  }
+  return 661.7 * keV;
 }
 
-// ============================================================================
+void G4PrimaryGeneratorAction::GeneratePrimaries(G4Event* event) {
+  const G4double r = fSourceRadius * std::sqrt(G4UniformRand());
+  const G4double phi = twopi * G4UniformRand();
+  const G4double energy = SampleGammaEnergy();
 
-void G4PrimaryGeneratorAction::SetOptPhotonPolar(G4double angle) {
-    
-    if (particleGun->GetParticleDefinition()->GetParticleName() != "opticalphoton") {
-        G4cout << "--> warning from PrimaryGeneratorAction::SetOptPhotonPolar() :"
-                "the particleGun is not an opticalphoton" << G4endl;
-        return;
-    }
+  fGun->SetParticleEnergy(energy);
+  fGun->SetParticlePosition({r * std::cos(phi), r * std::sin(phi), fSourceZ});
+  fGun->SetParticleMomentumDirection(G4RandomDirection());
+  fGun->GeneratePrimaryVertex(event);
 
-    G4ThreeVector normal (1., 0., 0.);
-    G4ThreeVector kphoton = particleGun->GetParticleMomentumDirection();
-    G4ThreeVector product = normal.cross(kphoton);
-    G4double modul2       = product*product;
-
-    G4ThreeVector e_perpend (0., 0., 1.);
-    if (modul2 > 0.) e_perpend = (1./std::sqrt(modul2))*product;
-    G4ThreeVector e_paralle    = e_perpend.cross(kphoton);
-
-    G4ThreeVector polar = std::cos(angle)*e_paralle + std::sin(angle)*e_perpend;
-    particleGun->SetParticlePolarization(polar);
-    
+  auto* eventAction = dynamic_cast<G4EventAction*>(G4EventManager::GetEventManager()->GetUserEventAction());
+  if (eventAction) eventAction->SetPrimary(fIsotope, energy);
 }
-
-// ============================================================================

@@ -1,37 +1,41 @@
-/// \file G4EventAction.hh
-/// \brief Definition of the G4EventAction class
-
 #ifndef G4EventAction_h
 #define G4EventAction_h 1
 
+#include "PhotonTrackInfo.hh"
 #include "G4UserEventAction.hh"
 #include "globals.hh"
+#include "G4ThreeVector.hh"
 
-/// Event action class
-///
-/// It defines data members to hold the energy deposit and track lengths
-/// of charged particles in Absober and Gap layers:
-/// - fEnergyAbs, fEnergyGap, fTrackLAbs, fTrackLGap
-/// which are collected step by step via the functions
-/// - AddAbs(), AddGap()
+class G4EventAction : public G4UserEventAction {
+public:
+  G4EventAction() = default;
+  ~G4EventAction() override = default;
 
-class G4EventAction : public G4UserEventAction
-{
-public:
-    G4EventAction();
-    virtual ~G4EventAction();
-    
-    virtual void  BeginOfEventAction(const G4Event* event);
-    virtual void    EndOfEventAction(const G4Event* event);
-    
-    
-public:
-    G4int nOfReflections;
-    G4int nOfDetections;
+  void BeginOfEventAction(const G4Event* event) override;
+  void EndOfEventAction(const G4Event* event) override;
+
+  void SetPrimary(const G4String& sourceType, G4double energy);
+  void AddWbLSEdep(G4double edep) { fEdepWbLS += edep; }
+  void CountProducedPhoton(PhotonTrackInfo::Origin origin);
+  void CountDetectedPhoton(G4int pmtId, PhotonTrackInfo::Origin origin);
+  void FillDetectedPhoton(G4int pmtId, G4double wavelength, G4double time,
+                          PhotonTrackInfo::Origin origin, const G4String& creator,
+                          const G4ThreeVector& position);
+
+private:
+  G4int fEventID = -1;
+  G4String fSourceType = "Cs137";
+  G4double fPrimaryEnergy = 0.0;
+  G4double fEdepWbLS = 0.0;
+  G4int fProducedOptical = 0;
+  G4int fProducedCherenkov = 0;
+  G4int fProducedScintillation = 0;
+  G4int fDetectedLarge = 0;
+  G4int fDetectedSmall = 0;
+  G4int fDetectedLargeCherenkov = 0;
+  G4int fDetectedLargeScintillation = 0;
+  G4int fDetectedSmallCherenkov = 0;
+  G4int fDetectedSmallScintillation = 0;
 };
 
-
-//....oooOO0OOooo........oooOO0OOooo........oooOO0OOooo........oooOO0OOooo......
-
 #endif
-

@@ -1,0 +1,7 @@
+# Cs-137 WbLS light-yield toy run
+/run/initialize
+/analysis/setFileName wbls_Cs137
+/wbls/source/isotope Cs137
+/wbls/source/radius 0.5 cm
+/wbls/source/z 14 cm
+/run/beamOn 1000

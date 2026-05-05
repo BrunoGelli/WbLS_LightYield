@@ -1,239 +1,192 @@
-    #include "G4DetectorConstruction.hh"
-    #include "G4Constantes.hh"
-
-    #include "G4Material.hh"
-    #include "G4Element.hh"
-    #include "G4NistManager.hh"
-
-    #include "G4Box.hh"
-    #include "G4Orb.hh"
-    #include "G4Tubs.hh"
-    #include "G4Sphere.hh"
-    #include "G4Trd.hh"
-
-    #include "G4LogicalVolume.hh"
-    #include "G4ThreeVector.hh"
-    #include "G4PVPlacement.hh"
-    #include "G4AutoDelete.hh"
-    #include "G4LogicalBorderSurface.hh"
-    #include "G4LogicalSkinSurface.hh"
-    #include "G4OpticalSurface.hh"
-
-    #include "G4SubtractionSolid.hh"
-    #include "G4VSolid.hh"
-    #include "G4UnionSolid.hh"
-    #include "G4VPVParameterisation.hh"
-    #include "G4PVParameterised.hh"
-
-
-    #include "G4VisAttributes.hh"
-    #include "G4Colour.hh"
-
-    #include "G4PhysicalConstants.hh"
-    #include "G4SystemOfUnits.hh"
-    #include "globals.hh"
-
-    #include "G4Navigator.hh"
-    #include "G4VPhysicalVolume.hh"
-    #include "G4TransportationManager.hh"
-
-    #include <fstream>
-    using namespace std;
-
-    #include "G4NeutronHPManager.hh"
-    #include <G4HadronicProcessStore.hh>
-    
-    //================================================================================
-
-    G4DetectorConstruction::G4DetectorConstruction (G4double RIndex, DetectorConfig& GeoConf)
-    : G4VUserDetectorConstruction(), fCheckOverlaps(true), Refr_Index(RIndex),  fConfig(GeoConf) {
-
-        G4NeutronHPManager::GetInstance()->SetVerboseLevel(0);
-        G4HadronicProcessStore::Instance()->SetVerbose(0);
-        // World
-        world_x = 400 * cm * 0.5;
-        world_y = 400 * cm * 0.5;
-        world_z = 400 * cm * 0.5;
-
-        // VLAr_x =  50 * cm * 0.5;
-        // VLAr_y =  50 * cm * 0.5;
-        // VLAr_z = 100 * cm * 0.5;
-        
-        VLAr_x =  GeoConf.sizeX * cm * 0.5;
-        VLAr_y =  GeoConf.sizeY * cm * 0.5;
-        VLAr_z =  GeoConf.sizeZ * cm * 0.5;
-
-        Pixel_x =  GeoConf.sizeX * cm * 0.5;
-        Pixel_y =  GeoConf.pixelSizeY * cm * 0.5;
-        Pixel_z =  GeoConf.pixelSizeZ * cm * 0.5;
-
-    }
-
-    //================================================================================
-
-    G4DetectorConstruction::~G4DetectorConstruction (){;}
-
-
-    //================================================================================
-
-    class Full3DParameterisation : public G4VPVParameterisation {
-    public:
-        Full3DParameterisation(G4int nY, G4int nZ, G4double pitchY, G4double pitchZ)
-            : fNY(nY), fNZ(nZ), fPitchY(pitchY), fPitchZ(pitchZ) {}
-
-        void ComputeTransformation(G4int copyNo, G4VPhysicalVolume* physVol) const override {
-            G4int iz = copyNo / fNY;
-            G4int iy = copyNo % fNY;
-
-            G4double y = (-fNY/2.0 + iy + 0.5) * fPitchY;
-            // G4double z = (-fNZ/2.0 + iz + 0.5) * fPitchZ;
-            G4double z = (-fNZ/2.0 + iz + 0.5) * fPitchZ;
-
-            physVol->SetTranslation(G4ThreeVector(0., y, z));
-        }
-
-        void ComputeDimensions(G4Box& box, G4int, const G4VPhysicalVolume*) const override {
-            // box is already defined — nothing to do here if you're using a fixed size
-        }
-
-    private:
-        G4int fNY;
-        G4int fNZ;
-        G4double fPitchY;
-        G4double fPitchZ;
-    };
-
-    //================================================================================
-
-    G4VPhysicalVolume* G4DetectorConstruction::Construct () {
-
-        // Define materials 
-        DefineMaterials();
-        
-        // Define volumes
-        return DefineVolumes();
-        
-    }
-
-    //================================================================================
-
-    void G4DetectorConstruction::DefineMaterials() {
-        
-        G4NistManager* nistManager = G4NistManager::Instance();
-
-        nistManager->FindOrBuildMaterial("G4_lAr");
-        nistManager->FindOrBuildMaterial("G4_Galactic");
-        nistManager->FindOrBuildMaterial("G4_URANIUM_MONOCARBIDE");
-
-        // G4cout << *(G4Material::GetMaterialTable()) << G4endl;
-        
-    }
-
-    //================================================================================
-
-    G4VPhysicalVolume* G4DetectorConstruction::DefineVolumes() {
-        // Get materials
-       
-        G4Material* Vacuo       = G4Material::GetMaterial("G4_Galactic");       
-        G4Material* LAr         = G4Material::GetMaterial("G4_lAr");
-        G4Material* HighSP      = G4Material::GetMaterial("G4_URANIUM_MONOCARBIDE");
-
-    //%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% Construction %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-
-    //====================== World ===========-===========
-
-        G4Box*              WorldS          = new G4Box (MUNDO_NOME, world_x, world_y, world_z);
-
-        G4LogicalVolume*    WorldLV         = new G4LogicalVolume (WorldS, Vacuo, MUNDO_NOME);
-
-        G4VPhysicalVolume*  WorldPV         = new G4PVPlacement (0, G4ThreeVector (), WorldLV, MUNDO_NOME, 0, true, 0, fCheckOverlaps);
-
-    //======================= Parametric volumes =======================
-
-    G4int nY = VLAr_y/Pixel_y;
-    G4int nZ = VLAr_z/Pixel_z;
-    G4int nTotal = nY * nZ;
-
-    G4float gapsize  = 35*cm;
-
-    // Slice volume (same dimensions for all copies)
-    auto sliceSolid = new G4Box("Slice", Pixel_x, Pixel_y, Pixel_z);
-    auto sliceLogic = new G4LogicalVolume(sliceSolid, LAr, "Slice");
-
-    // M0_Mother volume for stack
-    auto M0_motherSolid = new G4Box("M0_Mother", VLAr_x, VLAr_y, VLAr_z);
-    auto M0_motherLogic = new G4LogicalVolume(M0_motherSolid, Vacuo, "M0_Mother");
-    new G4PVPlacement(0, G4ThreeVector (gapsize,0,-gapsize), M0_motherLogic, "M0_Mother", WorldLV, false, 0);
-
-
-    new G4PVParameterised("Prisms_M0",
-                          sliceLogic,
-                          M0_motherLogic,
-                          kUndefined,  // Not tied to a single axis
-                          nTotal,
-                          new Full3DParameterisation(nY, nZ, Pixel_y*2, Pixel_z*2));
-
-
-    // M1_Mother volume for stack
-    auto M1_motherSolid = new G4Box("M1_Mother", VLAr_x, VLAr_y, VLAr_z);
-    auto M1_motherLogic = new G4LogicalVolume(M0_motherSolid, Vacuo, "M1_Mother");
-    new G4PVPlacement(0, G4ThreeVector (-gapsize,0,-gapsize), M1_motherLogic, "M1_Mother", WorldLV, false, 0);
-
-
-    new G4PVParameterised("Prisms_M1",
-                          sliceLogic,
-                          M1_motherLogic,
-                          kUndefined,  // Not tied to a single axis
-                          nTotal,
-                          new Full3DParameterisation(nY, nZ, Pixel_y*2, Pixel_z*2));
-
-
-    // M0_Mother volume for stack
-    auto M2_motherSolid = new G4Box("M2_Mother", VLAr_x, VLAr_y, VLAr_z);
-    auto M2_motherLogic = new G4LogicalVolume(M2_motherSolid, Vacuo, "M2_Mother");
-    new G4PVPlacement(0, G4ThreeVector (gapsize,0,gapsize), M2_motherLogic, "M2_Mother", WorldLV, false, 0);
-
-
-    new G4PVParameterised("Prisms_M2",
-                          sliceLogic,
-                          M2_motherLogic,
-                          kUndefined,  // Not tied to a single axis
-                          nTotal,
-                          new Full3DParameterisation(nY, nZ, Pixel_y*2, Pixel_z*2));
-
-
-    // M0_Mother volume for stack
-    auto M3_motherSolid = new G4Box("M3_Mother", VLAr_x, VLAr_y, VLAr_z);
-    auto M3_motherLogic = new G4LogicalVolume(M3_motherSolid, Vacuo, "M3_Mother");
-    new G4PVPlacement(0, G4ThreeVector (-gapsize,0,gapsize), M3_motherLogic, "M3_Mother", WorldLV, false, 0);
-
-
-    new G4PVParameterised("Prisms_M3",
-                          sliceLogic,
-                          M3_motherLogic,
-                          kUndefined,  // Not tied to a single axis
-                          nTotal,
-                          new Full3DParameterisation(nY, nZ, Pixel_y*2, Pixel_z*2));
-
-
-
-
-
-        G4VisAttributes* grey  = new G4VisAttributes (G4Colour (0.5, 0.5, 0.5, 0.8));
-        G4VisAttributes* blue  = new G4VisAttributes (G4Colour (0.5, 0.5, 1.0, 0.8));
-        G4VisAttributes* red   = new G4VisAttributes (G4Colour (1.0, 0.5, 0.5, 0.8));
-        G4VisAttributes* green = new G4VisAttributes (G4Colour (0.5, 1.0, 0.5, 0.8));
-        grey->SetForceSolid (true);
-        blue->SetForceSolid (true);
-        red->SetForceSolid (true);
-        green->SetForceSolid (true);
-        M0_motherLogic->SetVisAttributes(grey);
-        M1_motherLogic->SetVisAttributes(blue);
-        M2_motherLogic->SetVisAttributes(red);
-        M3_motherLogic->SetVisAttributes(green);
-
-        return WorldPV;
-
-
-        
-    }
+#include "G4DetectorConstruction.hh"
+#include "PMTSensitiveDetector.hh"
+
+#include "G4Box.hh"
+#include "G4Colour.hh"
+#include "G4Element.hh"
+#include "G4LogicalBorderSurface.hh"
+#include "G4LogicalSkinSurface.hh"
+#include "G4LogicalVolume.hh"
+#include "G4Material.hh"
+#include "G4MaterialPropertiesTable.hh"
+#include "G4NistManager.hh"
+#include "G4OpticalSurface.hh"
+#include "G4PVPlacement.hh"
+#include "G4PhysicalConstants.hh"
+#include "G4RotationMatrix.hh"
+#include "G4SDManager.hh"
+#include "G4Sphere.hh"
+#include "G4SystemOfUnits.hh"
+#include "G4Tubs.hh"
+#include "G4VisAttributes.hh"
+
+#include <vector>
+
+namespace {
+std::vector<G4double> EnergiesFromWavelengths(const DetectorConfig& cfg) {
+  std::vector<G4double> energies;
+  energies.reserve(cfg.wavelengths.size());
+  // Geant4 material property vectors must be ordered by increasing photon energy.
+  for (auto it = cfg.wavelengths.rbegin(); it != cfg.wavelengths.rend(); ++it) {
+    energies.push_back(h_Planck * c_light / (*it * nm));
+  }
+  return energies;
+}
+
+template <typename Array>
+std::vector<G4double> ReverseValues(const Array& input) {
+  return std::vector<G4double>(input.rbegin(), input.rend());
+}
+
+void AddProperty(G4MaterialPropertiesTable* mpt, const char* name,
+                 const std::vector<G4double>& energies,
+                 const std::vector<G4double>& values) {
+  mpt->AddProperty(name, energies.data(), values.data(), energies.size());
+}
+}
+
+G4DetectorConstruction::G4DetectorConstruction(const DetectorConfig& config) : fConfig(config) {}
+
+G4VPhysicalVolume* G4DetectorConstruction::Construct() {
+  DefineMaterials();
+  return DefineVolumes();
+}
+
+void G4DetectorConstruction::DefineMaterials() {
+  auto* nist = G4NistManager::Instance();
+  nist->FindOrBuildMaterial("G4_AIR");
+  nist->FindOrBuildMaterial("G4_Galactic");
+  nist->FindOrBuildMaterial("G4_SILICON_DIOXIDE");
+
+  auto* water = nist->FindOrBuildMaterial("G4_WATER");
+  auto* wbls = new G4Material("WbLS", fConfig.wblsDensity, 1);
+  wbls->AddMaterial(water, 1.0);
+
+  const auto energies = EnergiesFromWavelengths(fConfig);
+  auto* wblsMPT = new G4MaterialPropertiesTable();
+  AddProperty(wblsMPT, "RINDEX", energies, ReverseValues(fConfig.wblsRIndex));
+  auto absM = ReverseValues(fConfig.wblsAbsLength);
+  for (auto& value : absM) value *= m;
+  AddProperty(wblsMPT, "ABSLENGTH", energies, absM);
+  AddProperty(wblsMPT, "SCINTILLATIONCOMPONENT1", energies, ReverseValues(fConfig.emission));
+  // Legacy aliases keep the toy usable with Geant4 10.x examples/configurations.
+  AddProperty(wblsMPT, "FASTCOMPONENT", energies, ReverseValues(fConfig.emission));
+  wblsMPT->AddConstProperty("SCINTILLATIONYIELD", fConfig.wblsScintYield);
+  wblsMPT->AddConstProperty("RESOLUTIONSCALE", 1.0);
+  wblsMPT->AddConstProperty("SCINTILLATIONTIMECONSTANT1", fConfig.wblsDecayTime);
+  wblsMPT->AddConstProperty("SCINTILLATIONYIELD1", 1.0);
+  wblsMPT->AddConstProperty("FASTTIMECONSTANT", fConfig.wblsDecayTime);
+  wblsMPT->AddConstProperty("YIELDRATIO", 1.0);
+  wbls->SetMaterialPropertiesTable(wblsMPT);
+  wbls->GetIonisation()->SetBirksConstant(fConfig.birksConstant);
+
+  auto* glass = G4Material::GetMaterial("G4_SILICON_DIOXIDE");
+  auto* glassMPT = new G4MaterialPropertiesTable();
+  AddProperty(glassMPT, "RINDEX", energies, ReverseValues(fConfig.glassRIndex));
+  auto glassAbsM = ReverseValues(fConfig.glassAbsLength);
+  for (auto& value : glassAbsM) value *= m;
+  AddProperty(glassMPT, "ABSLENGTH", energies, glassAbsM);
+  glass->SetMaterialPropertiesTable(glassMPT);
+
+  auto* air = G4Material::GetMaterial("G4_AIR");
+  auto* airMPT = new G4MaterialPropertiesTable();
+  std::vector<G4double> airIndex(energies.size(), 1.00029);
+  AddProperty(airMPT, "RINDEX", energies, airIndex);
+  air->SetMaterialPropertiesTable(airMPT);
+
+  auto* spectralon = new G4Material("Spectralon", 2.2 * g / cm3, 2);
+  spectralon->AddElement(nist->FindOrBuildElement("C"), 2);
+  spectralon->AddElement(nist->FindOrBuildElement("F"), 4);
+
+  auto* photocathode = new G4Material("Photocathode", 1.0 * g / cm3, 1);
+  photocathode->AddElement(nist->FindOrBuildElement("Si"), 1);
+  auto* pcMPT = new G4MaterialPropertiesTable();
+  std::vector<G4double> pcIndex(energies.size(), 1.5);
+  AddProperty(pcMPT, "RINDEX", energies, pcIndex);
+  photocathode->SetMaterialPropertiesTable(pcMPT);
+}
+
+G4VPhysicalVolume* G4DetectorConstruction::DefineVolumes() {
+  auto* vacuum = G4Material::GetMaterial("G4_Galactic");
+  auto* air = G4Material::GetMaterial("G4_AIR");
+  auto* spectralon = G4Material::GetMaterial("Spectralon");
+  auto* glass = G4Material::GetMaterial("G4_SILICON_DIOXIDE");
+  auto* wbls = G4Material::GetMaterial("WbLS");
+
+  const G4double worldHalf = fConfig.sphereRadius + 8.0 * cm;
+  auto* worldS = new G4Box("World", worldHalf, worldHalf, worldHalf);
+  auto* worldLV = new G4LogicalVolume(worldS, vacuum, "World");
+  auto* worldPV = new G4PVPlacement(nullptr, {}, worldLV, "World", nullptr, false, 0, true);
+
+  // Thin visual shell; optical reflection is assigned to the air/world boundary below.
+  auto* shellS = new G4Sphere("SpectralonShell", fConfig.sphereRadius,
+                              fConfig.sphereRadius + fConfig.sphereWallThickness,
+                              0., twopi, 0., pi);
+  auto* shellLV = new G4LogicalVolume(shellS, spectralon, "SpectralonShell");
+  auto* shellPV = new G4PVPlacement(nullptr, {}, shellLV, "SpectralonShell", worldLV, false, 0, true);
+
+  auto* sphereS = new G4Sphere("SphereInterior", 0., fConfig.sphereRadius, 0., twopi, 0., pi);
+  auto* sphereLV = new G4LogicalVolume(sphereS, air, "SphereInterior");
+  auto* spherePV = new G4PVPlacement(nullptr, {}, sphereLV, "SphereInterior", worldLV, false, 0, true);
+
+  // Cuvette: a simple glass cylinder enclosing a WbLS cylinder. The top face is at the sample port.
+  const G4double sampleZ = fConfig.sphereRadius - 0.5 * fConfig.cuvetteHeight;
+  auto* cuvetteS = new G4Tubs("CuvetteGlass", 0., fConfig.cuvetteOuterRadius,
+                              0.5 * fConfig.cuvetteHeight, 0., twopi);
+  auto* cuvetteLV = new G4LogicalVolume(cuvetteS, glass, "CuvetteGlass");
+  new G4PVPlacement(nullptr, {0., 0., sampleZ}, cuvetteLV, "CuvetteGlass", sphereLV, false, 0, true);
+
+  auto* wblsS = new G4Tubs("WbLS", 0., fConfig.cuvetteOuterRadius - fConfig.cuvetteWallThickness,
+                           0.5 * (fConfig.cuvetteHeight - 2.0 * fConfig.cuvetteWallThickness), 0., twopi);
+  auto* wblsLV = new G4LogicalVolume(wblsS, wbls, "WbLS");
+  new G4PVPlacement(nullptr, {}, wblsLV, "WbLS", cuvetteLV, false, 0, true);
+
+  fLargePMTLogical = MakePhotocathode("largePMT", 0.5 * fConfig.largePMTPortDiameter, 0);
+  fSmallPMTLogical = MakePhotocathode("smallPMT", 0.5 * fConfig.smallPMTPortDiameter, 1);
+  auto* yRot = new G4RotationMatrix();
+  yRot->rotateY(90.0 * deg);
+  new G4PVPlacement(yRot, {fConfig.sphereRadius - 0.01 * mm, 0., 0.}, fLargePMTLogical,
+                    "largePMT", sphereLV, false, 0, true);
+  auto* yRotOpposite = new G4RotationMatrix();
+  yRotOpposite->rotateY(90.0 * deg);
+  new G4PVPlacement(yRotOpposite, {-fConfig.sphereRadius + 0.01 * mm, 0., 0.}, fSmallPMTLogical,
+                    "smallPMT", sphereLV, false, 1, true);
+
+  const auto energies = EnergiesFromWavelengths(fConfig);
+  auto* reflectorSurface = new G4OpticalSurface("SpectralonLambertian");
+  reflectorSurface->SetType(dielectric_dielectric);
+  reflectorSurface->SetModel(unified);
+  reflectorSurface->SetFinish(groundfrontpainted);
+  auto* reflectMPT = new G4MaterialPropertiesTable();
+  std::vector<G4double> reflectivity(energies.size(), fConfig.spectralonReflectivity);
+  std::vector<G4double> efficiency(energies.size(), 0.0);
+  AddProperty(reflectMPT, "REFLECTIVITY", energies, reflectivity);
+  AddProperty(reflectMPT, "EFFICIENCY", energies, efficiency);
+  reflectorSurface->SetMaterialPropertiesTable(reflectMPT);
+  new G4LogicalBorderSurface("SphereDiffuseReflector", spherePV, shellPV, reflectorSurface);
+
+  auto* shellVis = new G4VisAttributes(G4Colour(0.95, 0.95, 0.90, 0.25));
+  shellVis->SetForceWireframe(true);
+  shellLV->SetVisAttributes(shellVis);
+  wblsLV->SetVisAttributes(new G4VisAttributes(G4Colour(0.1, 0.4, 1.0, 0.6)));
+  cuvetteLV->SetVisAttributes(new G4VisAttributes(G4Colour(0.8, 0.9, 1.0, 0.25)));
+  fLargePMTLogical->SetVisAttributes(new G4VisAttributes(G4Colour(0.2, 0.8, 0.2)));
+  fSmallPMTLogical->SetVisAttributes(new G4VisAttributes(G4Colour(0.2, 0.8, 0.2)));
+
+  return worldPV;
+}
+
+G4LogicalVolume* G4DetectorConstruction::MakePhotocathode(const G4String& name, G4double radius, G4int) {
+  auto* disk = new G4Tubs(name + "Disk", 0., radius, 0.05 * mm, 0., twopi);
+  return new G4LogicalVolume(disk, G4Material::GetMaterial("Photocathode"), name);
+}
+
+void G4DetectorConstruction::ConstructSDandField() {
+  auto* sdManager = G4SDManager::GetSDMpointer();
+  auto* largeSD = new PMTSensitiveDetector("/det/largePMT", fConfig, 0);
+  auto* smallSD = new PMTSensitiveDetector("/det/smallPMT", fConfig, 1);
+  sdManager->AddNewDetector(largeSD);
+  sdManager->AddNewDetector(smallSD);
+  if (fLargePMTLogical) fLargePMTLogical->SetSensitiveDetector(largeSD);
+  if (fSmallPMTLogical) fSmallPMTLogical->SetSensitiveDetector(smallSD);
+}

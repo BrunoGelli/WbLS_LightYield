@@ -1,0 +1,10 @@
+/run/initialize
+/vis/open OGL
+/vis/viewer/set/viewpointThetaPhi 70 35
+/vis/viewer/set/style surface
+/vis/drawVolume
+/vis/scene/add/trajectories smooth
+/vis/scene/endOfEventAction accumulate 10
+/tracking/storeTrajectory 1
+/wbls/source/isotope Cs137
+/run/beamOn 10

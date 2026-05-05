@@ -1,0 +1,7 @@
+# Co-60 WbLS light-yield toy run. Each event samples one of the two gamma lines.
+/run/initialize
+/analysis/setFileName wbls_Co60
+/wbls/source/isotope Co60
+/wbls/source/radius 0.5 cm
+/wbls/source/z 14 cm
+/run/beamOn 1000
